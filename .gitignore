@@ -1,0 +1,12 @@
+# Secrets — nooit committen
+.env
+
+# Gegenereerde OSINT-rapporten (bevatten persoonsgegevens)
+osint_rapport_*.html
+osint_rapport_*.pdf
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/

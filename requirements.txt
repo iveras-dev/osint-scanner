@@ -1,0 +1,14 @@
+requests>=2.31,<3
+rich>=13,<16
+pycountry>=24,<25
+ddgs>=9.14,<10
+holehe>=1.60,<2
+certifi>=2024,<2027
+httpx>=0.27,<1
+trio>=0.26,<1
+socid-extractor>=0.0.20,<2
+maigret>=0.6.5,<2
+curl_cffi>=0.15,<1
+playwright>=1.40,<2
+phonenumbers>=8.13,<9
+
