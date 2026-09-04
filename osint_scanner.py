@@ -3161,6 +3161,8 @@ def voer_onderzoek_uit(target_type, target_value, dorks_dict, plaats="", voornaa
         if tv.get("telegram") is not None:
             tg_kleur = "green" if tv["telegram"] else "yellow"
             tg_label = "Telegram actief" if tv["telegram"] else "Telegram nee"
+            if tv.get("telegram_url"):
+                tg_label += f" [link]({tv['telegram_url']})"
             onderdelen.append(f"[{tg_kleur}]{tg_label}[/]")
         if onderdelen:
             tabel.add_row("Telefoon verrijking", " | ".join(onderdelen))
@@ -3801,6 +3803,8 @@ def genereer_dashboard(target_type, target_value, rapport, extra=None, plaats=""
             blok += f'<tr><td class="detail-label">Telegram</td><td class="{tk}">{tl}</td></tr>'
         elif tv.get("telegram_url"):
             blok += f'<tr><td class="detail-label">Telegram</td><td class="muted"><a href="{e(tv["telegram_url"])}" target="_blank" rel="noopener">Open Telegram</a></td></tr>'
+        if tv.get("telegram_url"):
+            blok += f'<tr><td class="detail-label">Telegram-link</td><td><a href="{e(tv["telegram_url"])}" target="_blank" rel="noopener">{e(tv["telegram_url"])}</a></td></tr>'
         blok += "</tbody></table></div>"
         onderdelen.append(blok)
 
