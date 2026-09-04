@@ -142,6 +142,16 @@ Rapporten worden opgeslagen als:
 - **HTML**: `osint_rapport_{naam}.html` — donker dashboard met zoekfunctie
 - **PDF**: `osint_rapport_{naam}.pdf` — via menu-optie 8 > P
 
+## Licentie
+
+De OSINT Scanner staat onder **GNU AGPL-3.0** (de strengste copyleft-licentie — geldt ook voor netwerkgebruik/SaaS).
+
+De volledige licentietekst staat in `LICENSE`.
+
+### Externe afhankelijkheden
+
+De tool gebruikt diverse `pip`-dependencies (holehe, maigret, socid-extractor, ddgs, rich, curl_cffi, en meer) die hun eigen open-source-licenties hebben. Deze zijn gedocumenteerd in `THIRD_PARTY_NOTICES`. Er is geen broncode van deze tools overgenomen in deze repository; ze worden puur als bibliotheek geïmporteerd of als subprocess aangeroepen.
+
 ## Updates
 
 ```bash

@@ -1,0 +1,98 @@
+# Third-Party Licences — OSINT Scanner
+
+Dit bestand vermeldt de licenties van externe bibliotheken die door de OSINT
+Scanner worden gebruikt. Deze dependencies zijn geïnstalleerd via `pip` en worden
+als bibliotheek geïmporteerd of als subprocess aangeroepen; hun broncode is niet
+overgenomen in deze repository.
+
+De OSINT Scanner zelf staat onder **GNU AGPL-3.0** (zie LICENSE).
+
+---
+
+## Python-afhankelijkheden (requirements.txt)
+
+### holehe
+- Licentie: MIT
+- Auteur: luccasrava
+- URL: https://github.com/luccasrava/holehe
+- Gebruik: Controleert of een e-mailadres geregistreerd is bij bekende platforms.
+
+### socid-extractor
+- Licentie: MIT
+- Auteur: Soxoj
+- URL: https://github.com/soxoj/socid-extractor
+- Gebruik: Extraheert gestructureerde profieldata (bio, volgers, IDs) uit HTML-
+  broncode van social-mediaplatforms.
+
+### maigret
+- Licentie: MIT
+- Auteur: Soxoj (oorspronkelijk: sherlock-project)
+- URL: https://github.com/soxoj/maigret
+- Gebruik: Onderzoekt of een gebruikersnaam bestaat op duizenden websites.
+  Wordt aangeroepen als subprocess, niet als module geïmporteerd.
+
+### ddgs
+- Licentie: MIT
+- Auteur: DeXtEr312
+- URL: https://github.com/DeXtEr312/ddgs
+- Gebruik: Wrapper voor DuckDuckGo-zoekopdrachten; wordt gebruikt als
+  fallback wanneer de Brave Search API niet beschikbaar is.
+
+### rich
+- Licentie: MIT
+- Auteur: Will McGuinnes (Textualize)
+- URL: https://github.com/Textualize/rich
+- Gebruik: CLI-interface met kleuren, tabellen, panelen, spinners en console.
+
+### curl-cffi
+- Licentie: MIT
+- Auteur: lexiforest
+- URL: https://github.com/lexiforest/curl_cffi
+- Gebruik: HTTP-client met TLS-impersonatie om WAF-blokkeringen te omzeilen.
+  Onderdeel van de WAF-tolerante HTTP-laag (`harvest_client.py`).
+
+### playwright
+- Licentie: Apache-2.0
+- Auteur: Microsoft
+- URL: https://github.com/microsoft/playwright-python
+- Gebruik: Headless Chromium-fallback voor websites met JavaScript-
+  uitdagingen wanneer `curl_cffi` geblokkeerd wordt.
+
+### phonenumbers
+- Licentie: Apache-2.0
+- Auteur: The Google libphonenumber Team
+- URL: https://github.com/daviddrysdale/python-phonenumbers
+- Gebruik: Telefoonanalyse — land, regio, netwerk, type, tijdzone.
+
+### pycountry
+- Licentie: LGPL-2.1-only
+- Auteur: Christian Theune
+- URL: https://github.com/jakobwenzel/pycountry
+- Gebruik: Landen- en taalgegevens (ISO-codes). LGPL vereist dat de gebruiker
+  het pakket kan vervangen door een eigen versie; dit wordt voldaan doordat
+  pycountry als apart pip-pakket wordt geïnstalleerd.
+
+### requests
+- Licentie: Apache-2.0
+- Auteur: Kenneth Reitz / PSF
+- URL: https://github.com/psf/requests
+- Gebruik: Standaard HTTP-client voor het ophalen van pagina's en API's.
+
+### httpx
+- Licentie: BSD-3-Clause
+- Auteur: Encode OSS Ltd.
+- URL: https://github.com/encode/httpx
+- Gebruik: Async HTTP-client, gebruikt door holehe en socid-extractor.
+
+### trio
+- Licentie: MIT OR Apache-2.0
+- Auteur: vorenhout.dev
+- URL: https://github.com/python-trio/trio
+- Gebruik: Async framework, vereist door holehe voor niet-blokkerende
+  netwerkaanroepen.
+
+### certifi
+- Licentie: MPL-2.0
+- Auteur: Mozilla
+- URL: https://github.com/certifi/python-certifi
+- Gebruik: Mozilla CA-certificaatbundel voor TLS-verify.
