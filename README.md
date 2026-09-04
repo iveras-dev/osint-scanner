@@ -152,7 +152,17 @@ De volledige licentietekst staat in `LICENSE`.
 
 De tool gebruikt diverse `pip`-dependencies (holehe, maigret, socid-extractor, ddgs, rich, curl_cffi, en meer) die hun eigen open-source-licenties hebben. Deze zijn gedocumenteerd in `THIRD_PARTY_NOTICES`. Er is geen broncode van deze tools overgenomen in deze repository; ze worden puur als bibliotheek geïmporteerd of als subprocess aangeroepen.
 
+### Installatieregistratie & telemetrie
+
+Bij het starten registreert de scanner de installatie (max. 1×/dag) bij `license.iveras.com`, zodat er zicht is op actieve installaties. Elke install krijg een eigen anoniem `install_id` + uniek token (opgeslagen onder `~/.osint_scanner/config.json`, buiten de repo). Verzonden wordt alleen: appnaam, versie, OS en Pythonversie — geen persoonlijke gegevens, geen zoektermen.
+
+Uitschakelen (optioneel, geen gevolgen voor de werking): zet `OSINT_NO_TELEMETRY=1` in `.env`.
+
 ## Updates
+
+De scanner toont bij het starten een **update-banner** als er op GitHub (`iveras-dev/osint-scanner`) een nieuwere commit of versie staat. Via menu-optie **U** ("Update installeren") kun je de update direct installeren (`git pull`).
+
+Handmatig werkt dit ook:
 
 ```bash
 cd osint-scanner

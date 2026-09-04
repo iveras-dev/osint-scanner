@@ -23,15 +23,20 @@ import html
 import json
 import math
 import os
+import platform
 import random
 import re
+import secrets
 import socket
 import subprocess
 import time
+import uuid
 import urllib.parse
 import warnings
 import webbrowser
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+import threading
 
 import requests
 try:
@@ -135,6 +140,312 @@ GITHUB_CODE_ENDPOINT = "https://api.github.com/search/code"
 BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
 
 USER_AGENT = "osint-scanner/1.0 (legitiem OSINT onderzoek)"
+
+# ---------------------------------------------------------------------------
+# Licentie-registratie + update-check (optionele telemetrie, uitschakelbaar)
+# ---------------------------------------------------------------------------
+LICENSE_SERVER = os.environ.get("OSINT_LICENSE_SERVER", "https://license.iveras.com")
+UPDATE_REPO = os.environ.get("OSINT_UPDATE_REPO", "iveras-dev/osint-scanner")
+UPDATE_BRANCH = os.environ.get("OSINT_UPDATE_BRANCH", "main")
+SCANNER_DIR = os.path.dirname(os.path.abspath(__file__))
+_update_resultaat = None
+_update_cache = {"cached_at": 0.0, "data": None}
+_scanversie = None
+
+
+def _telemetrie_uit() -> bool:
+    """Telemetrie/licentie-registratie expliciet uitgeschakeld via .env of env."""
+    return os.environ.get("OSINT_NO_TELEMETRY", "").strip().lower() in (
+        "1", "true", "ja", "yes", "aan",
+    )
+
+
+def _versie_lokaal() -> str:
+    global _scanversie
+    if _scanversie:
+        return _scanversie
+    try:
+        with open(os.path.join(SCANNER_DIR, "VERSION"), encoding="utf-8") as f:
+            _scanversie = (f.read().strip() or "0.0.0")
+    except Exception:
+        _scanversie = "0.0.0"
+    return _scanversie
+
+
+def _cfg_pad() -> str:
+    return os.path.join(os.path.expanduser("~"), ".osint_scanner", "config.json")
+
+
+def _lees_cfg() -> dict:
+    try:
+        with open(_cfg_pad(), encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _schrijf_cfg(cfg: dict) -> None:
+    try:
+        pad = _cfg_pad()
+        os.makedirs(os.path.dirname(pad), exist_ok=True)
+        tmp = pad + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+        os.replace(tmp, pad)
+        try:
+            os.chmod(pad, 0o600)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+def _laad_of_maak_install() -> tuple[str, str]:
+    """Install-ID + uniek token; blijft buiten de repo (onder de homepage)."""
+    cfg = _lees_cfg()
+    gewijzigd = False
+    install_id = cfg.get("install_id")
+    token = cfg.get("install_token")
+    if not install_id:
+        install_id = uuid.uuid4().hex
+        cfg["install_id"] = install_id
+        gewijzigd = True
+    if not token:
+        token = secrets.token_urlsafe(32)
+        cfg["install_token"] = token
+        gewijzigd = True
+    if gewijzigd:
+        _schrijf_cfg(cfg)
+    return install_id, token
+
+
+def _licentie_register() -> bool:
+    """Registreer deze installatie (max. 1x/dag) bij license.iveras.com.
+
+    Nooit blokkerend-van-de-tool: elke fout wordt stilgevangen. Gebruiker kan
+    alles uitschakelen met OSINT_NO_TELEMETRY=1 in .env.
+    """
+    if _telemetrie_uit():
+        return False
+    try:
+        cfg = _lees_cfg()
+        vandaag = datetime.now().strftime("%Y-%m-%d")
+        if cfg.get("last_telemetry") == vandaag:
+            return True
+        install_id, token = _laad_of_maak_install()
+        info = {
+            "app": "osint-scanner",
+            "versie": _versie_lokaal(),
+            "os": platform.system(),
+            "platform": platform.platform(),
+            "python": platform.python_version(),
+        }
+        r = requests.post(
+            LICENSE_SERVER + "/api/register",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Install-ID": install_id,
+                "User-Agent": USER_AGENT,
+            },
+            json={"install_id": install_id, "info": info},
+            timeout=8,
+        )
+        if r.status_code < 300:
+            cfg["last_telemetry"] = vandaag
+            _schrijf_cfg(cfg)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _licentie_register_achtergrond() -> None:
+    """Registreert in een daemon-thread zodat de menustart nooit wacht."""
+    threading.Thread(target=_licentie_register, daemon=True).start()
+
+
+def _fetch_txt(url: str, timeout: float = 5.0):
+    r = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=timeout)
+    r.raise_for_status()
+    return r.text.strip()
+
+
+def _fetch_sha(url: str, timeout: float = 5.0):
+    r = requests.get(
+        url,
+        headers={"Accept": "application/vnd.github.v3.sha", "User-Agent": USER_AGENT},
+        timeout=timeout,
+    )
+    if r.status_code == 403:
+        return None  # GitHub-API rate-limit: versie-vergelijking werkt dan nog
+    r.raise_for_status()
+    return r.text.strip()
+
+
+def _git_sha_lokaal() -> str | None:
+    try:
+        git = _welke("git") or "/usr/bin/git"
+        r = subprocess.run(
+            [git, "rev-parse", "HEAD"],
+            capture_output=True, text=True, cwd=SCANNER_DIR, timeout=10,
+        )
+        if r.returncode == 0:
+            return r.stdout.strip()
+    except Exception:
+        pass
+    return None
+
+
+def _welke(naam: str) -> str | None:
+    import shutil
+
+    return shutil.which(naam)
+
+
+def _check_update(force: bool = False) -> dict:
+    """Vergelijkt lokale VERSION + git-SHA met GitHub (branch `main`).
+
+    Resultaat wordt 1 uur gecached. Nooit crashend; bij gebrek aan netwerk of
+    github blokkades is dit slechts een stil gemist overzicht (banner blijft weg).
+    """
+    global _update_cache, _update_resultaat
+    nu = time.time()
+    if not force and _update_cache.get("cached_at") and (nu - _update_cache["cached_at"]) < 3600:
+        return _update_cache["data"]
+
+    resultaat = {
+        "update_beschikbaar": False,
+        "huidige_versie": _versie_lokaal(),
+        "nieuwste_versie": None,
+        "huidige_sha": _git_sha_lokaal(),
+        "nieuwste_sha": None,
+        "check_enabled": not _telemetrie_uit(),
+    }
+
+    if _telemetrie_uit():
+        resultaat["melding"] = "Update-check uitgeschakeld (OSINT_NO_TELEMETRY)."
+        _update_cache = {"cached_at": nu, "data": resultaat}
+        _update_resultaat = resultaat
+        return resultaat
+
+    versie_url = (
+        f"https://raw.githubusercontent.com/{UPDATE_REPO}/{UPDATE_BRANCH}/VERSION"
+    )
+    api_url = f"https://api.github.com/repos/{UPDATE_REPO}/commits/{UPDATE_BRANCH}"
+    try:
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            fv = ex.submit(_fetch_txt, versie_url)
+            fs = ex.submit(_fetch_sha, api_url)
+            try:
+                resultaat["nieuwste_versie"] = fv.result(timeout=6)
+            except Exception:
+                resultaat["nieuwste_versie"] = None
+            try:
+                resultaat["nieuwste_sha"] = fs.result(timeout=6)
+            except Exception:
+                resultaat["nieuwste_sha"] = None
+    except Exception:
+        pass
+
+    if (
+        resultaat["nieuwste_sha"]
+        and resultaat["huidige_sha"]
+        and resultaat["nieuwste_sha"] != resultaat["huidige_sha"]
+    ):
+        resultaat["update_beschikbaar"] = True
+    elif (
+        not resultaat["nieuwste_sha"]
+        and resultaat["nieuwste_versie"]
+        and resultaat["nieuwste_versie"] not in ("", resultaat["huidige_versie"])
+    ):
+        # Git-SHA onbekend (bijv. ZIP-install): val terug op versie-vergelijking
+        versie_lager = _versie_nummer_verschilt(
+            resultaat["nieuwste_versie"], resultaat["huidige_versie"]
+        )
+        resultaat["update_beschikbaar"] = bool(versie_lager)
+
+    _update_cache = {"cached_at": nu, "data": resultaat}
+    _update_resultaat = resultaat
+    return resultaat
+
+
+def _versie_nummer_verschilt(nieuw: str, oud: str) -> bool:
+    def _niet(n):
+        try:
+            return [int(x) for x in re.findall(r"\d+", n)][:3]
+        except Exception:
+            return []
+
+    n, o = _niet(nieuw), _niet(oud)
+    return n and o and (n > o)
+
+
+def _update_banner():
+    """Rich-Panel dat in het hoofdmenu verschijnt als er een update klaarstaat."""
+    u = _update_resultaat or {}
+    if not u.get("update_beschikbaar"):
+        return None
+    versie_tekst = ""
+    if (
+        u.get("huidige_versie")
+        and u.get("nieuwste_versie")
+        and u["huidige_versie"] != u["nieuwste_versie"]
+    ):
+        versie_tekst = f" (v{u['huidige_versie']} → v{u['nieuwste_versie']})"
+    return Panel(
+        f"[bold yellow]\u2191 Update beschikbaar{versie_tekst}[/]\n"
+        "[dim]Er is een nieuwe versie van OSINT Scanner op GitHub "
+        "gepubliceerd.[/] Druk [bold cyan]U[/] om de update te installeren.",
+        title="[bold green]Update[/]",
+        border_style="green",
+        padding=(0, 1),
+    )
+
+
+def _voer_update_uit() -> None:
+    """Menu-optie U: git pull --ff-only + hertoetsen (geen commit, geen push)."""
+    global _update_resultaat
+    try:
+        git = _welke("git")
+        if not git:
+            console.print(
+                "[red]Git is niet geinstalleerd. Download de nieuwste versie "
+                "opnieuw van GitHub (repo iveras-dev/osint-scanner).[/]"
+            )
+            return
+        r = subprocess.run(
+            [git, "-C", SCANNER_DIR, "rev-parse", "--is-inside-work-tree"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode != 0:
+            console.print(
+                "[red]Deze installatie is geen git-repository (bijv. een "
+                "ZIP-download). Download de nieuwste versie opnieuw of clonen. "
+                "Repo: iveras-dev/osint-scanner[/]"
+            )
+            return
+        console.print("[cyan]Git-pull uitvoeren...[/]")
+        pr = subprocess.run(
+            [git, "-C", SCANNER_DIR, "pull", "--ff-only"],
+            capture_output=True, text=True, timeout=180,
+        )
+        uitvoer = (pr.stdout + pr.stderr).strip()
+        if uitvoer:
+            console.print(uitvoer)
+        if pr.returncode == 0:
+            console.print(
+                "[green]✔ Update toegepast. Herstart de scanner "
+                "(uitvoeren van [bold]Q[/] en opnieuw ./start.sh of start.bat) "
+                "om de nieuwe versie te laden.[/]"
+            )
+            _update_resultaat = _check_update(force=True)
+        else:
+            console.print(
+                "[red]Update mislukt — controleer de git-status "
+                "([bold]git status[/]) en los het conflict handmatig op.[/]"
+            )
+    except Exception as e:
+        console.print(f"[red]Update mislukt: {e}[/]")
 
 SOCIAL_HOSTS = {
     "twitter.com": "X / Twitter",
@@ -4571,6 +4882,29 @@ def toon_instellingen():
                             else "[green]nooit[/]")
             tabel.add_row("-", "Brave exact-frase gaf 0", val_inrichting, "")
             tabel.add_row("-", "teruggevallen op DDG", val_fallback, "")
+        if _telemetrie_uit():
+            tabel.add_row("-", "Telemetrie/licentieregistratie", "[dim]uit (OSINT_NO_TELEMETRY)[/]", "")
+        else:
+            telemetrie_status = (
+                "[green]actief[/]" if _lees_cfg().get("last_telemetry") else "[dim]nog niet gelukt[/]"
+            )
+            tabel.add_row("-", "Telemetrie/licentieregistratie", telemetrie_status,
+                          f"v{_versie_lokaal()}")
+        update = _update_resultaat or {}
+        if update.get("check_enabled"):
+            if update.get("update_beschikbaar"):
+                tabel.add_row("-", "Update beschikbaar", "[yellow]ja (druk U)[/]", "")
+            elif update.get("nieuwste_versie"):
+                tabel.add_row("-", "Update beschikbaar", "[green]actueel[/]", update["nieuwste_versie"])
+            else:
+                tabel.add_row("-", "Update beschikbaar", "[dim]onbekend (offline?)[/]", "")
+            tabel.add_row("-", "Laatst gemelde versie", "[dim]lokaal[/]", update.get("huidige_versie", "?"))
+            if update.get("huidige_sha") and update.get("nieuwste_sha"):
+                kort = lambda s: s[:12]
+                tabel.add_row("-", "Git-commit", "[dim]lokaal[/]",
+                              f"{kort(update['huidige_sha'])} → {kort(update['nieuwste_sha'])}")
+        else:
+            tabel.add_row("-", "Update-check", "[dim]uit (OSINT_NO_TELEMETRY)[/]", "")
         console.print(tabel)
         extra = (" of '6' = eigen key toevoegen" if not waarden.get("BRAVE_API_KEY")
                  else " of 'A' = eigen key toevoegen")
@@ -4717,6 +5051,10 @@ def teken_hoofdmenu():
         padding=(0, 1),
     )
     console.print(Columns([logo, zijvak], padding=(0, 1)))
+    banner = _update_banner()
+    if banner:
+        console.print(banner)
+        console.print()
     cijfers = Table(box=box.SIMPLE_HEAVY, show_header=False, pad_edge=False)
     cijfers.add_column(width=5, justify="center", style="bold cyan")
     cijfers.add_column()
@@ -4745,6 +5083,7 @@ def teken_hoofdmenu():
     letters.add_column()
     letters.add_row("C", "Configuratie-status tonen")
     letters.add_row("S", "Instellingen (API-keys)")
+    letters.add_row("U", "Update installeren (git pull)")
     letters.add_row("Q", "Afsluiten")
     console.print(Panel(
         letters,
@@ -4926,11 +5265,16 @@ def _toon_een_id(profiel):
 
 
 def main():
+    # Eenmalig bij starten: registreer installatie (achtergrond, nooit blokkerend)
+    # + update-check in het geheugen zodat de banner in het menu getoond kan worden.
+    global _update_resultaat
+    _licentie_register_achtergrond()
+    _update_resultaat = _check_update()
     while True:
         teken_hoofdmenu()
         keuze = Prompt.ask(
             "[bold]Maak uw keuze[/]",
-            choices=["1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "A", "c", "C", "k", "K", "s", "S", "q", "Q"],
+            choices=["1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "A", "c", "C", "k", "K", "s", "S", "u", "U", "q", "Q"],
             default="Q",
         ).upper()
 
@@ -5161,6 +5505,9 @@ def main():
             Prompt.ask("\nDruk op Enter om terug te gaan naar het menu")
         elif keuze == "S":
             toon_instellingen()
+        elif keuze == "U":
+            _voer_update_uit()
+            Prompt.ask("\nDruk op Enter om terug te gaan naar het menu", default="")
         elif keuze == "Q":
             console.print("\n[dim]Tot ziens.[/]\n")
             break

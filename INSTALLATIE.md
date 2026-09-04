@@ -220,7 +220,9 @@ Open je ze via **menu-optie 8** in de tool, dan kun je ze ook direct naar PDF ex
 
 ## Nieuwste versie krijgen / updates
 
-De tool wordt bijgewerkt via Git. Om de nieuwste versie te halen:
+De tool wordt bijgewerkt via Git. De scanner controleert bij het starten of er op GitHub een nieuwere versie/commit staat en toont dan een **update-banner** met menu-optie **U** ("Update installeren") — deze voert direct `git pull` uit.
+
+Handmatig werkt dit ook:
 
 ```bash
 cd osint-scanner
@@ -229,3 +231,11 @@ git pull
 ```
 
 Dit haalt de nieuwste code op en installeert eventuele nieuwe onderdelen.
+
+### Installatieregistratie (telemetrie, opt-out)
+
+Bij de eerste start registreert de scanner de installatie (max. 1×/dag) bij `license.iveras.com` zodat er zicht is op actieve installaties. Dit is optioneel en volledig te blokkeren:
+
+- Elke install gebruikt een eigen anoniem `install_id` + uniek token, opgeslagen in `~/.osint_scanner/config.json` (buiten de repo; staat nooit op GitHub).
+- Verzonden: appnaam, versie, OS en Pythonversie. Geen naam, geen zoektermen, geen persoonlijke gegevens.
+- Uitzetten: zet in `.env` de regel `OSINT_NO_TELEMETRY=1`.
