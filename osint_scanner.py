@@ -46,6 +46,7 @@ warnings.filterwarnings(
     message="Some characters could not be decoded",
 )
 from rich import box
+from rich.columns import Columns
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
@@ -4675,14 +4676,33 @@ def toon_config_status():
 
 def teken_hoofdmenu():
     console.clear()
-    console.print(Panel(
+    logo = Panel(
         BANNER,
         title="[bold magenta]OSINT Scanner[/]",
         subtitle="Brave · DuckDuckGo · HIBP · GitHub",
         border_style="magenta",
         width=58,
         padding=(0, 6),
-    ))
+    )
+    # Disclaimer-vak rechts naast het logo (tekst vast, wraps automatisch)
+    disclaimer = (
+        "[bold yellow]Let op![/] Resultaten moeten altijd aan de hand van een "
+        "tweede bron worden geverifieerd. Gebruik van deze tool is altijd voor "
+        "eigen risico van de gebruiker en [bold]\"Iveras Nederland\"[/] is nooit "
+        "aansprakelijk voor de resultaten, het gebruik daarvan en de gevolgen "
+        "van gebruik. De tool werkt ook zonder API-keys maar dan met mindere "
+        "c.q. beperkte resultaten. Bij vragen kijk in de documentatie of neem "
+        "contact op met [bold cyan]osintscanner@iveras.com[/] om een case te "
+        "openen (tegen betaling)."
+    )
+    zijvak = Panel(
+        disclaimer,
+        title="[bold yellow]\u26a0 Disclaimer[/]",
+        border_style="yellow",
+        width=38,
+        padding=(0, 1),
+    )
+    console.print(Columns([logo, zijvak], padding=(0, 1)))
     cijfers = Table(box=box.SIMPLE_HEAVY, show_header=False, pad_edge=False)
     cijfers.add_column(width=5, justify="center", style="bold cyan")
     cijfers.add_column()
