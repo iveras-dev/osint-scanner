@@ -2704,6 +2704,70 @@ def _normaliseer_telefoon(tel):
     return cleaned, cleaned
 
 
+def _telegram_profiel_extraheren(html_text, genorm):
+    """Haalt accountnaam, gebruikersnaam en profielfoto uit de openbare
+    t.me-preivew-pagina. Retourneert een dict met 'telegram_*'-velden, of
+    een leeg dict als er slechts de generieke 'Chat with +31...'-pagina wordt
+    getoond (dus geen openbaar profiel zichtbaar).
+    """
+    import re as _re
+    uit = {}
+    title = _re.search(r'tgme_page_title[^>]*>(.*?)</div>', html_text, _re.S)
+    if not title:
+        return uit
+    naam = _re.sub(r'<[^>]+>', ' ', title.group(1))
+    naam = _re.sub(r'\s+', ' ', naam).strip()
+    # Checkmark-icoon (✔) verwijderen
+    naam = naam.replace("✔", "").replace("✓", "").strip()
+    if not naam:
+        return uit
+    # Generieke nummer-chatpagina → geen openbaar profiel
+    if "chat with" in naam.lower() and genorm.replace("+", "") in _re.sub(r"\D", "", naam):
+        return uit
+
+    uit["telegram_naam"] = naam
+
+    # Gebruikersnaam: uit username-link of tgme_page_extra
+    extra = _re.search(r'tgme_page_extra[^>]*>(.*?)</div>', html_text, _re.S)
+    if extra:
+        extra_txt = _re.sub(r'<[^>]+>', ' ', extra.group(1))
+        extra_txt = _re.sub(r'\s+', ' ', extra_txt).strip()
+        if extra_txt:
+            if "@" in extra_txt:
+                # Vat uit '... @gebruikersnaam ...' of start-@
+                m = _re.search(r'@([A-Za-z0-9_]{4,})', extra_txt)
+                if m:
+                    uit["telegram_gebruikersnaam"] = m.group(1)
+            # Kanaal-aantal abonnees
+            msub = _re.search(r'([\d\s.,]+)\s*subscribers?', extra_txt, _re.I)
+            if msub:
+                uit["telegram_subscribers"] = msub.group(1).strip()
+            elif "member" in extra_txt.lower():
+                uit["telegram_extra"] = extra_txt
+            else:
+                uit["telegram_extra"] = extra_txt
+
+    # Gebruikersnaam via ekspliciete link (tgme_username_link)
+    ul = _re.search(r'tgme_username_link[^>]*href="tg://resolve\?domain=([^"]+)"', html_text)
+    if ul:
+        uit["telegram_gebruikersnaam"] = ul.group(1)
+
+    # Profielfoto-URL
+    foto = _re.search(r'tgme_page_photo_image[^>]*src="([^"]+)"', html_text)
+    if foto:
+        uit["telegram_foto"] = foto.group(1)
+
+    # Beschrijving (niet bij nummer-accounts, wel bij publieke profielen)
+    desc = _re.search(r'tgme_page_description[^>]*>(.*?)</div>', html_text, _re.S)
+    if desc:
+        d = _re.sub(r'<[^>]+>', ' ', desc.group(1))
+        d = _re.sub(r'\s+', ' ', d).strip()
+        if d:
+            uit["telegram_beschrijving"] = d
+
+    return uit
+
+
 def telefoon_verrijk(tel):
     """Verrijk een telefoonnummer met gratis publieke checks (geen key).
 
@@ -2760,6 +2824,15 @@ def telefoon_verrijk(tel):
             except Exception:
                 pass
             try:
+                nt = phonenumbers.number_type(parsed)
+                if nt in (phonenumbers.PhoneNumberType.MOBILE,
+                          phonenumbers.PhoneNumberType.FIXED_LINE_OR_MOBILE):
+                    uitkomst["lijn_type"] = "mobiel"
+                elif nt == phonenumbers.PhoneNumberType.FIXED_LINE:
+                    uitkomst["lijn_type"] = "vast"
+            except Exception:
+                pass
+            try:
                 tzs = _pntz.time_zones_for_number(parsed)
                 uitkomst["tijdzone"] = tzs[0] if tzs else None
             except Exception:
@@ -2776,35 +2849,14 @@ def telefoon_verrijk(tel):
 
     genorm = uitkomst.get("genormaliseerd")
     if genorm and uitkomst.get("geldig"):
-        # WhatsApp (alleen betrouwbaar bepalen bij geldig nummer)
-        try:
-            wa = _harvest_get_of_none(
-                f"https://api.whatsapp.com/send?phone={genorm}",
-                headers={"user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                                       "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"},
-                timeout=10,
-            )
-            if wa is not None and wa.status_code == 200:
-                tekst = wa.text.lower()
-                afwezig = ["phone number is not on whatsapp", "is unavailable",
-                           "cannot send messages to this number", "invalid phone number",
-                           "phone number shared via url is invalid", "is invalid",
-                           "check the number", "niet op whatsapp", "staat niet op"]
-                aanwezig = [f"wa.me/{genorm}", "continue to chat", "open whatsapp chat"]
-                if any(p in tekst for p in afwezig):
-                    uitkomst["whatsapp"] = False
-                elif f"wa.me/{genorm}" in tekst or "continue to chat" in tekst:
-                    uitkomst["whatsapp"] = True
-                elif "action-button" in tekst:
-                    uitkomst["whatsapp"] = True
-                else:
-                    uitkomst["whatsapp"] = None
-            else:
-                uitkomst["whatsapp"] = None
-        except Exception:
-            uitkomst["whatsapp"] = None
+        # WhatsApp: sinds 2024 toont api.whatsapp.com identieke "share on
+        # WhatsApp" content voor geldig én ongeldig — server-side detectie
+        # is niet meer mogelijk zonder WhatsApp Business API-authenticatie.
+        # We geven een directe handmatige check-link.
+        uitkomst["whatsapp"] = None
+        uitkomst["whatsapp_url"] = f"https://wa.me/{genorm}"
 
-        # Telegram (alleen bij geldig nummer; onduidelijke/op-oproep-pagina = None)
+        # Telegram: detectie + accountinfo via de openbare t.me/-preview-pagina
         try:
             tg_url = f"https://t.me/+{genorm}"
             tg = _harvest_get_of_none(
@@ -2813,18 +2865,25 @@ def telefoon_verrijk(tel):
                                        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"},
                 timeout=8,
             )
+            uitkomst["telegram_url"] = tg_url
             if tg is None:
                 uitkomst["telegram"] = None
             else:
                 tekst = tg.text.lower()
+                html_text = tg.text
                 afwezig = ["doesn't appear to exist", "does not appear to exist",
                            "no account found", "user not found", "could not be found",
                            "is not registered", "not found"]
-                aanwezig = ["send message", "tgme_page_action", "tgme_action_button"]
+                aanwezig = ["send message", "tgme_page_action", "tgme_action_button",
+                            "tgme_page_title", "open chat"]
                 if any(p in tekst for p in afwezig):
                     uitkomst["telegram"] = False
                 elif any(p in tekst for p in aanwezig):
                     uitkomst["telegram"] = True
+                    # Accountinfo uit de preview-pagina halen (naam, gebruikersnaam, foto)
+                    prof = _telegram_profiel_extraheren(html_text, genorm)
+                    if prof:
+                        uitkomst.update(prof)
                 else:
                     uitkomst["telegram"] = None
         except Exception:
@@ -3171,6 +3230,11 @@ def voer_onderzoek_uit(target_type, target_value, dorks_dict, plaats="", voornaa
             tg_kleur = "green" if tv["telegram"] else "yellow"
             tg_label = "Telegram actief" if tv["telegram"] else "Telegram nee"
             onderdelen.append(f"[{tg_kleur}]{tg_label}[/]")
+        if tv.get("telegram_naam"):
+            tgnaam = tv["telegram_naam"]
+            if tv.get("telegram_gebruikersnaam"):
+                tgnaam += f" ([cyan]@{tv['telegram_gebruikersnaam']}[/])"
+            onderdelen.append(f"[bold]Telegram:[/] {tgnaam}")
         if onderdelen:
             tabel.add_row("Telefoon verrijking", " | ".join(onderdelen))
     if "rdw" in extra:
@@ -3591,6 +3655,7 @@ def genereer_dashboard(target_type, target_value, rapport, extra=None, plaats=""
         .notice-foto img { max-width: 140px; max-height: 180px; border-radius: 8px; border: 1px solid #1e293b; display: block; margin-bottom: 4px; }
         .notice-foto a { font-size: 12px; font-weight: bold; color: #38bdf8; }
         .notice-thumb { max-width: 56px; max-height: 56px; border-radius: 6px; border: 1px solid #1e293b; object-fit: cover; }
+        .tg-avatar { max-width: 96px; max-height: 96px; border-radius: 10px; border: 1px solid #1e293b; object-fit: cover; }
         #zoekbalk { position: sticky; top: 0; z-index: 20; background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 10px 12px; display: flex; gap: 10px; align-items: center; margin-bottom: 22px; box-shadow: 0 4px 12px rgba(0,0,0,.35); }
         #zoekveld { flex: 1; background: #0b0f19; color: #e2e8f0; border: 1px solid #334155; border-radius: 8px; padding: 8px 12px; font-size: 14px; }
         #zoekveld:focus { outline: none; border-color: #38bdf8; }
@@ -3800,12 +3865,29 @@ def genereer_dashboard(target_type, target_value, rapport, extra=None, plaats=""
             blok += f'<tr><td class="detail-label">Tijdzone</td><td>{e(tv["tijdzone"])}</td></tr>'
         if tv.get("whatsapp") is not None:
             wk = "ok" if tv["whatsapp"] else "warn"
-            wl = "Account actief op WhatsApp" if tv["whatsapp"] else "Geen WhatsApp-account gevonden (of niet beschikbaar)"
+            wl = "Account actief op WhatsApp" if tv["whatsapp"] else "Geen WhatsApp-account gevonden"
             blok += f'<tr><td class="detail-label">WhatsApp</td><td class="{wk}">{wl}</td></tr>'
+        elif tv.get("whatsapp_url"):
+            blok += f'<tr><td class="detail-label">WhatsApp</td><td class="muted">Server-side detectie niet mogelijk (handmatig controleren: <a href="{e(tv["whatsapp_url"])}" target="_blank" rel="noopener">open WhatsApp</a>)</td></tr>'
         if tv.get("telegram") is not None:
             tk = "ok" if tv["telegram"] else "warn"
-            tl = "Account actief op Telegram" if tv["telegram"] else "Geen Telegram-account gevonden (of niet beschikbaar)"
+            tl = "Account actief op Telegram" if tv["telegram"] else "Geen Telegram-account gevonden"
             blok += f'<tr><td class="detail-label">Telegram</td><td class="{tk}">{tl}</td></tr>'
+        elif tv.get("telegram_url"):
+            blok += f'<tr><td class="detail-label">Telegram</td><td class="muted"><a href="{e(tv["telegram_url"])}" target="_blank" rel="noopener">Open Telegram</a></td></tr>'
+        if tv.get("telegram_url"):
+            blok += f'<tr><td class="detail-label">Telegram-profiel</td><td><a href="{e(tv["telegram_url"])}" target="_blank" rel="noopener">t.me/+{e(tv.get("genormaliseerd", ""))}</a></td></tr>'
+        if tv.get("telegram_naam"):
+            tn = e(tv["telegram_naam"])
+            if tv.get("telegram_gebruikersnaam"):
+                tn += f' <a href="https://t.me/{e(tv["telegram_gebruikersnaam"])}" target="_blank" rel="noopener">@{e(tv["telegram_gebruikersnaam"])}</a>'
+            blok += f'<tr><td class="detail-label">Telegram-account</td><td class="ok">{tn}</td></tr>'
+        if tv.get("telegram_subscribers"):
+            blok += f'<tr><td class="detail-label">Abonnees</td><td>{e(tv["telegram_subscribers"])}</td></tr>'
+        if tv.get("telegram_beschrijving"):
+            blok += f'<tr><td class="detail-label">Beschrijving</td><td>{e(tv["telegram_beschrijving"])}</td></tr>'
+        if tv.get("telegram_foto"):
+            blok += f'<tr><td class="detail-label">Profielfoto</td><td><img class="tg-avatar" src="{e(tv["telegram_foto"])}" alt="profielfoto" loading="lazy"></td></tr>'
         blok += "</tbody></table></div>"
         onderdelen.append(blok)
 
