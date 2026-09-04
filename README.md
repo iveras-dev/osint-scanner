@@ -1,10 +1,15 @@
 # OSINT Scanner
 
-Naam-, gebruikersnaam-, e-mail- en telefoononderzoek met automatische HTML-rapportage en PDF-export.
+CLI-tool voor open source intelligence-onderzoek: naam, gebruikersnaam, e-mail, telefoon, bedrijven, adres, kenteken, Interpol/FBI-notices en social-media-ID-extractie — met automatische HTML-rapportage (donker dashboard) en PDF-export.
 
 ## Snel starten
 
-### Optie 1: Vanuit broncode (aanbevolen)
+### Vanuit broncode (aanbevolen)
+
+```bash
+git clone https://github.com/iveras-dev/osint-scanner.git
+cd osint-scanner
+```
 
 **Mac/Linux:**
 ```bash
@@ -19,12 +24,12 @@ Dubbelklik install_windows.bat
 Dubbelklik start.bat
 ```
 
-### Optie 2: Standalone executable (geen Python nodig)
+### Standalone executable (geen Python nodig op doel-pc)
+
+Bouw eerst op een machine met Python (zie hierboven), dan:
 
 **Mac/Linux:**
 ```bash
-chmod +x install_mac.sh
-./install_mac.sh          # Eerst dependencies
 chmod +x bouw_standalone.sh
 ./bouw_standalone.sh      # Bouwt dist/OSINT-Scanner
 ./dist/OSINT-Scanner      # Starten
@@ -32,7 +37,6 @@ chmod +x bouw_standalone.sh
 
 **Windows:**
 ```
-install_windows.bat       # Eerst dependencies
 bouw_standalone.bat       # Bouwt dist\OSINT-Scanner.exe
 dist\OSINT-Scanner.exe    # Starten
 ```
@@ -42,16 +46,10 @@ dist\OSINT-Scanner.exe    # Starten
 | Onderdeel | Vereiste |
 |-----------|----------|
 | Python | 3.10+ (niet nodig bij standalone) |
+| Git | nodig om te klonen (of download ZIP) |
 | Browser | Chrome/Edge/Chromium (alleen voor PDF-export) |
 | Internet | Ja |
 | Schijfruimte | ~50 MB (venv) |
-
-### Voor PyInstaller build (optioneel)
-
-| Onderdeel | Vereiste |
-|-----------|----------|
-| Xcode CLT (Mac) | `xcode-select --install` — moet overeenkomen met CPU-architectuur |
-| Visual C++ Build Tools (Windows) | Optioneel, meestal niet nodig |
 
 ## API Keys (optioneel)
 
@@ -67,64 +65,76 @@ cp .env.example .env
 | `OVERHEID_IO_API_KEY` | [overheid.io](https://overheid.io/) | Ja | KVK-handelsregister |
 | `YOUTUBE_API_KEY` | [Google Cloud Console](https://console.cloud.google.com/) | 10.000/dag | YouTube Data API v3 |
 
-Zonder keys werkt de tool via DuckDuckGo fallback en page-scraping.
+Zonder keys werkt de tool via DuckDuckGo fallback en page-scraping. Alle andere bronnen (Interpol, FBI, Politie.nl, RDW, Kadaster/BAG) zijn **gratis en vereisen geen key**.
 
-## Social Media ID-extractie
-
-- **Kernplatforms** (Instagram, X/Twitter, YouTube, TikTok, Facebook) gebruiken onze eigen extractie: officiële APIs, unofficial endpoints en page-scraping. Deze is primair en ongewijzigd van kwaliteit.
-- **Additionele platforms** (Steam, SoundCloud, Telegram, e.a.) worden aangevuld met **socid-extractor** (MIT-licentie) — een extra laag bovenop onze eigen extractie, die stabilere interne IDs (steam_id, uid, etc.), bio's en volgers ophaalt.
-- **Maigret site-scan**: bij gebruikersnaam-onderzoeken wordt **Maigret** (MIT-licentie, 3000+ sites) gedraaid als aanvullende laag. Het vindt extra platforms (Bit.ly, Substack, VK, Weibo, Twitch, etc.) die we niet zelf dekken, met profiel-URL en interne IDs. Onze eigen checks blijven primair; Maigret is uitsluitend aanvulling en de resultaten worden tegen fout-positieven gefilterd (o.a. filter-URLs en Discord-domeinchecks).
-- **Voortgang**: alle ID-extractie toont een live counter (`(2/6): instagram/naam`) zodat je weet waar de zoekactie staat.
-
-## Blokkade-tolerantie & OpSec
-
-- Platforms die ons blokkeren (HTTP 403/429/5xx) worden automatisch onthouden en tijdelijk overgeslagen. Bij herhaalde blokkeringen worden ze binnen de sessie minder bevraagd.
-- **HTTP-laag (`harvest_client.py`)**: alle externe verzoeken gaan via een WAF-tolerante client die, in oplopende mate:
-  1. **`curl_cffi` TLS-impersonatie** — reproduceert een echte Chrome-TLS-fingerprint, zodat Akamai e.d. ons niet langer als Python-`requests` herkent (bv. de politie-API's: plain requests → 403, impersonate → 200).
-  2. **Jitter-sleep** per domein — randomized pauzes tegen burst-patronen (config: `JITTER_ENABLED`, `JITTER_MIN`, `JITTER_MAX`).
-  3. **Proxy-rotatie** — afwisselende IP's via `PROXY_LIST` + `PROXY_ROTATION_ENABLED=1`.
-  4. **Tor-routing** — via `TOR_ENABLED=1` + `TOR_PROXY` (standaard `socks5h://127.0.0.1:9050`); optioneel `TOR_STRICT_MODE=1` om te weigeren als Tor uit staat.
-  5. **Playwright-fallback** — headless Chromium (met stealth) als curl_cffi wordt geblokkeerd, voor doelen met JS-uitdagingen; aanzetten met `PLAYWRIGHT_FALLBACK_ENABLED=1` + `playwright install chromium`.
-- Een **SSRF-guard** controleert elke hop (incl. redirects) zodat een verzoek nooit naar private/reserved netwerken lekt.
-- Randomized pauzes tussen verzoeken voorkomen burst-patronen en beperken het digitale trace.
-
-## Adres & politie (menu-optie A)
-
-- Zoekt een Nederlands adres op bij het Kadaster/BAG (gratis open data, geen key): perceel, bouwjaar, oppervlakte, gebruiksdoel, status, coördinaten.
-- Bepaalt automatisch de **dichtstbijzijnde politiebureaus** via de officiële `api.politie.nl`-API (naam, adres, telefoon, link) en genereert wijkagent-/politiebureau-links voor het betreffende postcodegebied.
-- Toont kaartlinks (BAG viewer, Google Maps, OpenStreetMap).
-
-## E-mail-, telefoon- en kentekenverrijking
-
-Naast de bestaande lek- en sites-checks worden extra gratis publieke verrijkingen getoond:
-
-- **E-mail** (menu-optie 3): wegwerp/weggebed-mail-detectie (tempmail, yopmail, 10minutemail etc.), MX-record-check (kan het domein überhaupt mail ontvangen?) en **EmailRep.io**-reputatie (verdacht/score). Plus quick-links naar EmailRep, HIBP, Hunter.io, Dehashed en Google.
-- **Telefoon** (menu-optie 4): nummer-normalisatie (E164), land/regio/netwerk/type/tijdzone via **phonenumbers**, en bestaans-checks op **WhatsApp** en **Telegram**.
-- **Kentekenonderzoek** (menu-optie **K**): gratis RDW-open-data-lookup van een Nederlands kenteken (merk, handelsbenaming, bouwjaar, brandstof, CO2, APK-vervaldatum, kleur, categorie).
-
-Al deze bronnen (EmailRep, RDW, WhatsApp/Telegram) zijn **gratis** en vereisen **geen API-key**. WhatsApp/Telegram-checks kunnen afhankelijk zijn van geografische beschikbaarheid (Telegram kan in sommige regio's geblokkeerd zijn).
-
-## Nieuws & kranten (gratis)
-
-Bij naam-onderzoek wordt in twee nieuws-dork-categorieën gezocht via de zoekmachine:
-
-- **Nieuws & Media** (landelijk): `nos.nl`, `nu.nl`, `rtlnieuws.nl`, `ad.nl`, `telegraaf.nl`, `volkskrant.nl`, `nrc.nl`, `parool.nl`, `trouw.nl`, `fd.nl`, `metronieuws.nl`.
-- **Regionale kranten & Vakbladen**: `gelderlander.nl`, `bndestem.nl`, `pzc.nl`, `eindhovensdagblad.nl`, `destentor.nl`, `tubantia.nl`, `weideblog.nl`, `nu.nl/regio`.
-
-Daarnaast toont het dashboard een **Delpher**-kaart met een handmatige open-link die de 2 mln gedigitaliseerde Nederlandse kranten (1618–2005, KB) op de volledige naam doorzoekt. Delpher is gratis zonder account, maar kent geen openbare zoek-API — daarom als directe link in plaats van een automatische scrape.
-
-## Menu
+## Zoekopties
 
 | Toets | Functie |
 |-------|---------|
-| 1-7 | Zoekacties (naam, gebruiker, email, tel, bedrijven, Interpol, social IDs) — naam-onderzoek doorzoekt ook landelijke én regionale kranten plus een Delpher-archieflink |
+| 1 | Zoeken op volledige naam (dorks, nieuws, Delpher) |
+| 2 | Zoeken op gebruikersnaam |
+| 3 | Zoeken op e-mailadres (+ lekken & sites) |
+| 4 | Zoeken op telefoonnummer |
+| 5 | Bedrijven zoeken (KVK-handelsregister) |
+| 6 | Interpol / FBI / Nationale Opsporingslijst |
+| 7 | Social Media ID extraheren |
 | A | Adres zoeken (Kadaster/BAG) + dichtstbijzijnde politiebureaus |
 | K | Kentekenonderzoek (RDW, gratis open data) |
 | 8 | Bestaande rapporten openen (of naar PDF exporteren) |
-| 9 | Rapporten opruimen (op datum of oud/klein) |
-| C | Configuratie tonen (incl. Brave-exact-frase- en DDG-fallback-tellers) |
+| 9 | Rapporten opruimen (oud / leeg) |
+| C | Configuratie tonen (incl. Brave/DDG-tellers) |
 | S | Instellingen / API-keys aanpassen |
 | Q | Afsluiten |
+
+## Wat doet de tool?
+
+### Naam-onderzoek (optie 1)
+
+Doorzoekt het web via Brave Search / DuckDuckGo met slimme dorks (social media, nieuws, forums, vacatures, kadaster, politie). Het donker HTML-dashboard toont:
+
+- Web-resultaten met score-labels en kleurcodering
+- Delpher-archieflink (2 mln gedigitaliseerde Nederlandse kranten, 1618–2005)
+- Regionale en landelijke nieuwskranten (NOS, NRC, Volkskrant, Trouw, FD, AD, De Gelderlander, en meer)
+
+### Interpol & FBI (optie 6)
+
+- **Interpol Red Notices** (gezocht) en **Yellow Notices** (vermist) — via de officiële, publieke Interpol API
+- **FBI Wanted / Missing Persons** — via de officiële, publieke FBI Wanted API (geen key nodig)
+- **Nationale Opsporingslijst** (Politie.nl) — via web-dorks
+
+### Social Media ID-extractie (optie 7)
+
+- **Kernplatforms** (Instagram, X/Twitter, YouTube, TikTok, Facebook) via onze eigen extractie: officiële APIs, unofficial endpoints en page-scraping
+- **Additionele platforms** (Steam, SoundCloud, Telegram, e.a.) via **socid-extractor** (MIT-licentie)
+- **Maigret site-scan** (MIT-licentie, 3000+ sites) als aanvullende laag bij gebruikersnaam-onderzoeken
+
+### E-mail-, telefoon- en kentekenverrijking
+
+- **E-mail** (optie 3): wegwerpmail-detectie, MX-record-check, EmailRep.io-reputatie
+- **Telefoon** (optie 4): land/regio/netwerk/type via `phonenumbers`, WhatsApp/Telegram-checks
+- **Kenteken** (optie K): RDW-open-data (merk, bouwjaar, brandstof, CO₂, APK, kleur)
+
+### Adres & politie (optie A)
+
+Kadaster/BAG (gratis open data): perceel, bouwjaar, oppervlakte, coördinaten + dichtstbijzijnde politiebureaus via `api.politie.nl`.
+
+### Blokkade-tolerantie & OpSec
+
+Alle verzoeken gaan via de WAF-tolerante HTTP-laag (`harvest_client.py`):
+1. `curl_cffi` TLS-impersonatie (echte Chrome-fingerprint)
+2. Jitter-sleep per domein
+3. Proxy-rotatie (optioneel)
+4. Tor-routing (optioneel)
+5. Playwright-fallback (headless Chromium, optioneel)
+6. SSRF-guard tegen lekken naar private netwerken
+
+## Dashboard
+
+Het HTML-dashboard heeft:
+- **Zoekbalk** — doorzoek alle resultaten
+- **Open/Alles-knoppen** — alle kaarten tegelijk uit- of inklappen
+- **Score-labels** — EXACT ~100%, STERK, MIDDEN, zwak
+- **Collapsible kaarten** — per bron apart inklapbaar
 
 ## Rapporten
 
@@ -132,23 +142,10 @@ Rapporten worden opgeslagen als:
 - **HTML**: `osint_rapport_{naam}.html` — donker dashboard met zoekfunctie
 - **PDF**: `osint_rapport_{naam}.pdf` — via menu-optie 8 > P
 
-## Bedrijfsmap delen
+## Updates
 
-Deel de volledige `gdorks/` map (zonder `.env` en `.venv/`):
-
+```bash
+cd osint-scanner
+git pull
+./install_mac.sh    # of opnieuw install_windows.bat
 ```
-gdorks/
-  osint_scanner.py         # Het script
-  harvest_client.py        # WAF-tolerante HTTP-laag (curl_cffi/Tor/proxy/Playwright)
-  requirements.txt         # Dependencies
-  .env.example             # API-key template
-  install_mac.sh           # Mac installatie
-  install_windows.bat      # Windows installatie
-  start.sh                 # Mac starten
-  start.bat                # Windows starten
-  bouw_standalone.sh       # Mac standalone bouwen
-  bouw_standalone.bat      # Windows standalone bouwen
-  README.md                # Dit bestand
-```
-
-De `.env` bevat je persoonlijke API-keys en wordt **niet** gedeeld.

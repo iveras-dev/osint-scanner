@@ -18,26 +18,18 @@ Dit document beschrijft stap voor stap hoe je de OSINT Scanner op een **andere p
 
 ---
 
-## 0. Bestanden kopiëren naar de nieuwe pc
+## 0. Bestanden ophalen via Git
 
-Kopieer de volledige **gdorks**-map naar de andere pc. **Belangrijk:** de persoonlijke `.env` (met jouw API-keys) en de `.venv/`-map worden NIET gedeeld — deze stel je op de nieuwe pc opnieuw in.
+De tool staat op GitHub. Haal de code op met:
 
-De map moet minimaal deze bestanden bevatten:
-
+```bash
+git clone https://github.com/iveras-dev/osint-scanner.git
+cd osint-scanner
 ```
-gdorks/
-  osint_scanner.py          # Het hoofdprogramma
-  harvest_client.py         # WAF-tolerante HTTP-laag (curl_cffi/Tor/proxy/Playwright)
-  requirements.txt          # Lijst van benodigde programma-onderdelen
-  .env.example              # Template voor API-keys
-  install_mac.sh            # Installatiescript Mac/Linux
-  install_windows.bat       # Installatiescript Windows
-  start.sh                  # Opstart-script Mac/Linux
-  start.bat                 # Opstart-script Windows
-  bouw_standalone.sh        # (optioneel) Bouw standalone Mac/Linux
-  bouw_standalone.bat       # (optioneel) Bouw standalone Windows
-  INSTALLATIE.md            # Dit document
-```
+
+> Als je geen Git hebt: download de [ZIP via GitHub](https://github.com/iveras-dev/osint-scanner/archive/refs/heads/main.zip) en unzip deze handmatig.
+
+> **Belangrijk:** het persoonlijke `.env` (met jouw API-keys) wordt **niet** meegedeeld via Git — deze stel je opnieuw in (stap 5).
 
 ---
 
@@ -64,12 +56,12 @@ open https://www.python.org/downloads/
 
 Download de **nieuwste** versie, installeer deze, en open daarna een **nieuw** Terminalvenster.
 
-**Stap 2 — naar de gdorks-map gaan**
+**Stap 2 — naar de osint-scanner-map gaan**
 
 ```bash
-cd ~/gdorks
+cd ~/osint-scanner
 ```
-> Pas het pad aan als je de map ergens anders hebt neergezet. Type `cd ` (met spatie erachter) en sleep de gdorks-map naar het terminalvenster, druk dan Enter.
+> Pas het pad aan als je de map ergens anders hebt neergezet. Type `cd ` (met spatie erachter) en sleep de osint-scanner-map naar het terminalvenster, druk dan Enter.
 
 **Stap 3 — installatiescript uitvoeren**
 
@@ -102,7 +94,7 @@ Dit maakt automatisch een virtuele omgeving aan, installeert alle onderdelen en 
 
 **Stap 2 — het installatiescript draaien**
 
-1. Open de **gdorks**-map in Windows Verkenner.
+1. Open de **osint-scanner**-map in Windows Verkenner.
 2. **Dubbelklik** op `install_windows.bat`.
 3. Een zwart venster (opent) dat automatisch alles installeert. Wacht tot er staat **"Installatie voltooid!"**.
 4. Druk op een toets om het venster te sluiten.
@@ -167,8 +159,8 @@ Kopieer `OSINT-Scanner.exe` naar de andere pc en **dubbelklik** het bestand om t
 
 Zonder keys werkt de tool via DuckDuckGo (langzamer) en page-scraping. Met keys wordt het sneller en betrouwbaarder.
 
-1. Open de `gdorks`-map.
-2. Open het bestand **`.env`** (dit is door de installatie aangemaakt) met een teksteditor (bijv. Kladblok of TextEdit).
+1. Open de `osint-scanner`-map.
+2. Open het bestand **`.env`** (dit is door het installatiescript aangemaakt op basis van `.env.example`) met een teksteditor (bijv. Kladblok of TextEdit).
 3. Vul de keys in die je hebt. De tool werkt ook oningevuld, maar dan minder snel.
 
 Welke keys zijn er en waar haal ik ze?
@@ -189,7 +181,7 @@ Welke keys zijn er en waar haal ik ze?
 Python ontbreekt of is te oud. Installeer Python (zie stap 1) en zorg dat het in je PATH staat. Op macOS: gebruik officiële installer van python.org, niet alleen de oud systeem-Python.
 
 **Het venster sluit meteen weer (Windows).**
-Er is een fout tijdens installatie of starten. Open PowerShell, `cd` naar de gdorks-map en draai `install_windows.bat` of `start.bat` handmatig — dan blijven de foutmeldingen zichtbaar.
+Er is een fout tijdens installatie of starten. Open PowerShell, `cd` naar de osint-scanner-map en draai `install_windows.bat` of `start.bat` handmatig — dan blijven de foutmeldingen zichtbaar.
 
 **`./start.sh` werkt niet in de Terminal.**
 Zorg dat je in de juiste map staat en typ:
@@ -215,7 +207,7 @@ De virtuele omgeving mist onderdelen. Draai het installatiescript nogmaals:
 
 ## Waar worden rapporten opgeslagen?
 
-Alle rapporten komen als HTML (en optioneel PDF) in dezelfde `gdorks`-map te staan:
+Alle rapporten komen als HTML (en optioneel PDF) in dezelfde `osint-scanner`-map te staan:
 
 ```
 osint_rapport_<naam>.html
@@ -228,7 +220,12 @@ Open je ze via **menu-optie 8** in de tool, dan kun je ze ook direct naar PDF ex
 
 ## Nieuwste versie krijgen / updates
 
-Om de tool bij te werken: vervang `osint_scanner.py` en `requirements.txt` door de nieuwste versies uit je bronmap, en draai het installatiescript opnieuw om eventuele nieuwe onderdelen te installeren:
+De tool wordt bijgewerkt via Git. Om de nieuwste versie te halen:
 
-- Mac: `./install_mac.sh`
-- Windows: dubbelklik `install_windows.bat`
+```bash
+cd osint-scanner
+git pull
+./install_mac.sh    # of opnieuw install_windows.bat
+```
+
+Dit haalt de nieuwste code op en installeert eventuele nieuwe onderdelen.
