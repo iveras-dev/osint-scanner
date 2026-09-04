@@ -4684,7 +4684,8 @@ def teken_hoofdmenu():
         width=58,
         padding=(0, 6),
     )
-    # Disclaimer-vak rechts naast het logo (tekst vast, wraps automatisch)
+    # Disclaimer-vak rechts naast het logo: zelfde hoogte als het logo-vak,
+    # breedte wordt automatisch gekozen zodat de tekst er precies in past.
     disclaimer = (
         "[bold yellow]Let op![/] Resultaten moeten altijd aan de hand van een "
         "tweede bron worden geverifieerd. Gebruik van deze tool is altijd voor "
@@ -4695,11 +4696,24 @@ def teken_hoofdmenu():
         "contact op met [bold cyan]osintscanner@iveras.com[/] om een case te "
         "openen (tegen betaling)."
     )
+
+    def _breedte_voor_hoogte(tekst, doelhoogte=10, max_breedte=140):
+        """Kleinste paneelbreedte zodat de tekst binnen `doelhoogte` regels past."""
+        for w in range(40, max_breedte + 1):
+            probeer = Panel(tekst, border_style="yellow", width=w, padding=(0, 1))
+            try:
+                regels = console.render_lines(probeer, console.options.update(width=w))
+            except Exception:
+                continue
+            if len(regels) <= doelhoogte:
+                return w
+        return max_breedte
+
     zijvak = Panel(
         disclaimer,
         title="[bold yellow]\u26a0 Disclaimer[/]",
         border_style="yellow",
-        width=38,
+        width=_breedte_voor_hoogte(disclaimer, doelhoogte=10),
         padding=(0, 1),
     )
     console.print(Columns([logo, zijvak], padding=(0, 1)))
