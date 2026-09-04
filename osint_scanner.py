@@ -29,6 +29,7 @@ import socket
 import subprocess
 import time
 import urllib.parse
+import warnings
 import webbrowser
 from datetime import datetime
 
@@ -39,6 +40,11 @@ except ImportError:
     pycountry = None
 from urllib3.exceptions import InsecureRequestWarning
 requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
+# Interne bibliotheek-ruis dempen (zorgt niet voor verwarring bij de gebruiker)
+warnings.filterwarnings(
+    "ignore",
+    message="Some characters could not be decoded",
+)
 from rich import box
 from rich.console import Console
 from rich.panel import Panel
@@ -1675,8 +1681,14 @@ def _laad_maigret_db():
     global _MAIGRET_DB
     if _MAIGRET_DB is not None or not MAIGRET_BESCHIKBAAR:
         return
+    # Maigret-log ruis volledig dempen: blokkades (403/Cloudflare/rate
+    # limit) zijn normaal gedrag en de samenvatting toont al hoeveel
+    # sites zijn doorzocht/overgeslagen. Gebruiker hoeft de interne
+    # tracebacks niet te zien.
     if _MAIGRET_LOG:
-        _MAIGRET_LOG.setLevel(_logging.WARNING)
+        _MAIGRET_LOG.setLevel(_logging.CRITICAL)
+        _MAIGRET_LOG.propagate = False
+        _MAIGRET_LOG.addHandler(_logging.NullHandler())
     try:
         data_pad = str(_importlib_resources.files("maigret") / "resources" / "data.json")
         _MAIGRET_DB = _MaigretDatabase().load_from_path(data_pad)
