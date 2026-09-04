@@ -58,9 +58,14 @@ echo ""
 
 # --- Kopieer .env.example naar .env als die niet bestaat ---
 if [ ! -f "$SCRIPT_DIR/.env" ]; then
-    cp "$SCRIPT_DIR/.env.example" "$SCRIPT_DIR/.env"
-    echo ">> .env aangemaakt vanuit .env.example"
-    echo "   Vul je API-keys in: $SCRIPT_DIR/.env"
+    if [ -f "$SCRIPT_DIR/.env.example" ]; then
+        cp "$SCRIPT_DIR/.env.example" "$SCRIPT_DIR/.env"
+        echo ">> .env aangemaakt vanuit .env.example"
+        echo "   Vul je API-keys in: $SCRIPT_DIR/.env"
+    else
+        touch "$SCRIPT_DIR/.env"
+        echo ">> Leeg .env aangemaakt (geen .env.example gevonden)"
+    fi
     echo ""
 fi
 
