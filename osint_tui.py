@@ -18,6 +18,7 @@ import os
 import re
 import subprocess
 import threading
+import time
 import webbrowser
 from dataclasses import dataclass, field
 
@@ -33,6 +34,7 @@ from textual.widgets import (
     Label,
     ListItem,
     ListView,
+    LoadingIndicator,
     RichLog,
 )
 
@@ -226,13 +228,15 @@ class OsintTui(App):
     #btnrij_zoek { display: none; }
     #resultaat { margin: 1 2; height: auto; display: none; }
     #result_status { color: #f1fa8c; margin-bottom: 1; }
+    #result_status_rij { height: 3; }
+    #laad_indicatie { display: none; width: 24; margin: 0 1; }
     #result_summary { color: #ddedf9; }
     #result_bronnen_kop, #result_hits_kop, #result_links_kop, #result_log_kop {
         color: #ffb86c; margin-top: 1; display: none;
     }
     #result_bronnen { display: none; }
     #result_hits, #result_links { height: auto; max-height: 12; margin: 0 0 0 1; display: none; }
-    #result_log { height: 8; border: round $accent; display: none; }
+    #result_log { height: 12; border: round $accent; display: none; }
     .paneel { margin: 1 2; height: auto; display: none; }
     #paneel_start { display: block; }
     .paneel Label { color: #ddedf9; }
@@ -291,7 +295,9 @@ class OsintTui(App):
                 with Horizontal(id="btnrij_zoek", classes="btnrij"):
                     yield Button("Zoeken", id="zoekknop", variant="primary")
                 with Vertical(id="resultaat", classes="paneel"):
-                    yield Label("", id="result_status")
+                    with Horizontal(id="result_status_rij"):
+                        yield Label("", id="result_status")
+                        yield LoadingIndicator(id="laad_indicatie")
                     yield Label("", id="result_summary")
                     yield Label("Bronnen", id="result_bronnen_kop")
                     yield Label("", id="result_bronnen")
@@ -313,6 +319,9 @@ class OsintTui(App):
         self._laatste_bestand: str | None = None
         self._runid = 0
         self._update_info: dict = {}
+        self._onderzoek_bezig = False
+        self._start_tijd = 0.0
+        self._laatste_seconde = -1
         self.auto_open_en_pdf = True
 
     def on_mount(self) -> None:
@@ -574,11 +583,30 @@ class OsintTui(App):
     # ------------------------------------------------------------------
 
     def _stream_regels(self) -> None:
+        try:
+            log = self.query_one("#result_log", RichLog)
+        except Exception:
+            return
         for regel in self.nieuwe_regels():
             try:
-                self.query_one("#result_log", RichLog).write(regel)
+                log.write(regel)
             except Exception:
                 pass
+        if self._onderzoek_bezig:
+            sec = int(time.monotonic() - self._start_tijd)
+            if sec != self._laatste_seconde:
+                self._laatste_seconde = sec
+                m, s = divmod(sec, 60)
+                try:
+                    self.query_one("#result_status", Label).update(
+                        f"[bold green]Onderzoek bezig… {m}:{s:02d} — even geduld[/]"
+                    )
+                except Exception:
+                    pass
+        try:
+            log.scroll_end(animate=False)
+        except Exception:
+            pass
 
     def nieuwe_regels(self) -> list[str]:
         data = _geleide_buffer.lees()
@@ -609,7 +637,14 @@ class OsintTui(App):
         self.query_one("#resultaat").display = True
         self._zet_titel(f"Zoeken — {next((t for z, t, _ in ZOEK_OPTIES if z == zt), zt)}")
         status = self.query_one("#result_status", Label)
-        status.update("[bold green]Onderzoek bezig…[/]")
+        status.update("[bold green]Onderzoek bezig… — even geduld[/]")
+        self.query_one("#laad_indicatie", LoadingIndicator).display = True
+        self.query_one("#result_log_kop", Label).update(
+            "Live-log — het systeem is bezig, dit kan een paar minuten duren"
+        )
+        self._onderzoek_bezig = True
+        self._start_tijd = time.monotonic()
+        self._laatste_seconde = -1
         self.query_one("#result_summary", Label).update("")
         self.query_one("#result_bronnen", Label).update("")
         self.query_one("#result_bronnen_kop").display = False
@@ -644,6 +679,9 @@ class OsintTui(App):
     def _onderzoek_klaar(self, rid: int, data: ZoekResultaat) -> None:
         if rid != self._runid:
             return
+        self._onderzoek_bezig = False
+        self.query_one("#laad_indicatie", LoadingIndicator).display = False
+        self.query_one("#result_log_kop", Label).update("Live-log")
         self._laatste_bestand = data.bestandsnaam
         status = self.query_one("#result_status", Label)
         if data.bestandsnaam:
@@ -681,6 +719,9 @@ class OsintTui(App):
     def _onderzoek_gefaald(self, rid: int, melding: str) -> None:
         if rid != self._runid:
             return
+        self._onderzoek_bezig = False
+        self.query_one("#laad_indicatie", LoadingIndicator).display = False
+        self.query_one("#result_log_kop", Label).update("Live-log")
         self.query_one("#result_status", Label).update(f"[red]{melding}[/]")
 
     @staticmethod
