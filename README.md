@@ -143,7 +143,7 @@ Naast het tekstmenu (`start.sh` / `start.bat`) is er een op muis én pijltoetsen
 - **Mac/Linux:** `./start-tui.sh`
 - **Windows:** dubbelklik `start-tui.bat`
 
-`textual` wordt door de startscripts automatisch geïnstalleerd wanneer die ontbreekt. Via de toetsen **U** (update), **I** (instellingen/API-keys) en **R** (bestaande rapporten) navigeer je door het menu; research streamt live naar een resultaten-scherm waar je het rapport direct kunt openen of naar PDF kunt exporteren.
+`textual` wordt door de startscripts automatisch geïnstalleerd wanneer die ontbreekt. De versie werkt als één **dashboard**: links een navigatie-rij met alle zoektypen (sneltoetsen 1-7, A, K) en beheer-pagina's (**I** instellingen/API-keys, **R** bestaande rapporten, **U** updates); rechts de inhoud. Research draait op de achtergrond en streamt live naar het resultaten-paneel (status, samenvatting, bronnen en klikbare hits/links), waar je het HTML-rapport direct kunt openen of naar PDF kunt exporteren.
 
 ## Rapporten
 

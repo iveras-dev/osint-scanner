@@ -3245,7 +3245,7 @@ def rdw_kenteken_zoek(kenteken):
     return uitkomst
 
 
-def voer_onderzoek_uit(target_type, target_value, dorks_dict, plaats="", voornaam=""):
+def voer_onderzoek_uit(target_type, target_value, dorks_dict, plaats="", voornaam="", return_data=False, open_browser_prompt=True):
     console.print()
     rapport = {}
 
@@ -3548,17 +3548,24 @@ def voer_onderzoek_uit(target_type, target_value, dorks_dict, plaats="", voornaa
     console.print(f"\n[bold green]✔ Rapport opgeslagen:[/] [underline]{bestandsnaam}[/]")
 
     # Open het rapport pas in de browser nadat de gebruiker de samenvatting
-    # heeft gezien en met een toets bevestigt.
-    keuze = Prompt.ask(
-        "\n[bold cyan]Open het rapport in de browser?[/] [dim](j/N)[/]",
-        choices=["j", "n"],
-        default="n",
-    )
-    if keuze.lower() == "j":
-        webbrowser.open(f"file://{os.path.abspath(bestandsnaam)}")
-        console.print("[dim]Rapport geopend in de browser.[/]")
-    else:
-        console.print("[dim]Rapport niet geopend.[/]")
+    # heeft gezien en met een toets bevestigt. (De desktop-versie stuurt deze
+    # prompt uit, die opent het rapport zelf via een 'Openen'-knop.)
+    if open_browser_prompt:
+        keuze = Prompt.ask(
+            "\n[bold cyan]Open het rapport in de browser?[/] [dim](j/N)[/]",
+            choices=["j", "n"],
+            default="n",
+        )
+        if keuze.lower() == "j":
+            webbrowser.open(f"file://{os.path.abspath(bestandsnaam)}")
+            console.print("[dim]Rapport geopend in de browser.[/]")
+        else:
+            console.print("[dim]Rapport niet geopend.[/]")
+
+    # De desktop-versie vraagt de gestructureerde (rapport, extra) op om zelf
+    # een samenvatting + klikbare hits te renderen.
+    if return_data:
+        return bestandsnaam, rapport, extra
     return bestandsnaam
 
 
