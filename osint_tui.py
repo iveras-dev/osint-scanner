@@ -205,6 +205,16 @@ class OsintTui(App):
         Binding("u", "updates", "Updates"),
         Binding("q", "quit", "Afsluiten"),
         Binding("ctrl+q", "quit", "Afsluiten"),
+        Binding("escape", "focus_navigatie", "Menu"),
+        # Ctrl-varianten: werken ook terwijl de focus in een zoekveld ligt
+        # (daar maken 1..7/a/k gewoon tekst). Niet in de footer tonen.
+        Binding("ctrl+1", "zoek_naam", show=False),
+        Binding("ctrl+2", "zoek_gebruikersnaam", show=False),
+        Binding("ctrl+3", "zoek_email", show=False),
+        Binding("ctrl+4", "zoek_telefoon", show=False),
+        Binding("ctrl+5", "zoek_bedrijven", show=False),
+        Binding("ctrl+6", "zoek_interpol", show=False),
+        Binding("ctrl+7", "zoek_socid", show=False),
     ]
 
     CSS = """
@@ -340,6 +350,7 @@ class OsintTui(App):
     # ------------------------------------------------------------------
 
     def selecteer_navigatie(self, waarde: str) -> None:
+        self._markeer_navigatie(waarde)
         if waarde in ZOEK_VELDEN:
             self.toon_formulier(waarde)
         elif waarde == "instellingen":
@@ -384,6 +395,18 @@ class OsintTui(App):
 
     def action_updates(self) -> None:
         self.toon_updates()
+
+    def action_focus_navigatie(self) -> None:
+        """Focus terug naar het linkermenu (Esc), ook vanuit een zoekveld."""
+        self.query_one("#navigatie", ListView).focus()
+
+    def _markeer_navigatie(self, waarde: str) -> None:
+        """Zet de highlight in het linkermenu op de huidige pagina."""
+        try:
+            idx = next(i for i, (w, _t, _n) in enumerate(NAV_ITEMS) if w == waarde)
+        except StopIteration:
+            return
+        self.query_one("#navigatie", ListView).index = idx
 
     def _verberg_inhoud(self) -> None:
         for zt, _t, _n in ZOEK_OPTIES:
