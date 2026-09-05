@@ -80,6 +80,8 @@ Dit maakt automatisch een virtuele omgeving aan, installeert alle onderdelen en 
 
 **Klaar!** Je ziet het OSINT Scanner-menu.
 
+> **Desktop-versie:** wil je de op muis/pijltoetsen bedienbare versie? Draai dan `./start-tui.sh` (Mac/Linux) of dubbelklik `start-tui.bat` (Windows). De script installeert `textual` automatisch zodra dat ontbreekt.
+
 ---
 
 ### VERSIE A2: Windows

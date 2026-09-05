@@ -136,6 +136,15 @@ Het HTML-dashboard heeft:
 - **Score-labels** — EXACT ~100%, STERK, MIDDEN, zwak
 - **Collapsible kaarten** — per bron apart inklapbaar
 
+## Desktop-versie (Textual)
+
+Naast het tekstmenu (`start.sh` / `start.bat`) is er een op muis én pijltoetsen bedienbare desktop-versie (Textual):
+
+- **Mac/Linux:** `./start-tui.sh`
+- **Windows:** dubbelklik `start-tui.bat`
+
+`textual` wordt door de startscripts automatisch geïnstalleerd wanneer die ontbreekt. Via de toetsen **U** (update), **I** (instellingen/API-keys) en **R** (bestaande rapporten) navigeer je door het menu; research streamt live naar een resultaten-scherm waar je het rapport direct kunt openen of naar PDF kunt exporteren.
+
 ## Rapporten
 
 Rapporten worden opgeslagen als:
