@@ -1081,6 +1081,26 @@ def _data_uit_rapport(zoektype, doelwit, best, rapport, extra) -> ZoekResultaat:
     tv = extra.get("telefoon_verrijking") or {}
     if tv.get("melding"):
         samenvatting.append(tv["melding"])
+    else:
+        tv_onderdelen = []
+        if tv.get("geldig"):
+            tv_onderdelen.append(f"Geldig ({tv.get('genormaliseerd') or '?'})")
+        else:
+            tv_onderdelen.append("Ongeldig nummer")
+        if tv.get("land"):
+            tv_onderdelen.append(f"Land: {tv['land']}")
+        if tv.get("netwerk"):
+            tv_onderdelen.append(f"Netwerk: {tv['netwerk']}")
+        if tv.get("lijn_type"):
+            tv_onderdelen.append(f"Lijn: {tv['lijn_type']}")
+        if tv.get("tijdzone"):
+            tv_onderdelen.append(f"Tijdzone: {tv['tijdzone']}")
+        if tv.get("whatsapp") is not None:
+            tv_onderdelen.append("WhatsApp actief" if tv["whatsapp"] else "WhatsApp niet gevonden")
+        if tv.get("telegram") is not None:
+            tv_onderdelen.append("Telegram actief" if tv["telegram"] else "Telegram niet gevonden")
+        if tv_onderdelen:
+            samenvatting.append("Telefoon-verrijking: " + " | ".join(tv_onderdelen))
     wp = extra.get("web_presence") or {}
     if "score" in wp:
         samenvatting.append(
@@ -1128,6 +1148,10 @@ def _data_uit_rapport(zoektype, doelwit, best, rapport, extra) -> ZoekResultaat:
         for s in (wp.get("socials") or [])
         if s.get("url")
     ]
+    if tv.get("telegram") is True and tv.get("telegram_url"):
+        links.append({"label": f"Telegram — {tv['genormaliseerd']}", "url": tv["telegram_url"]})
+    if tv.get("whatsapp_url"):
+        links.append({"label": f"WhatsApp — {tv['genormaliseerd']}", "url": tv["whatsapp_url"]})
     return ZoekResultaat(zoektype, doelwit, best, samenvatting, bronnen, hits, links)
 
 

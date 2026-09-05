@@ -31,8 +31,9 @@ else
     PYTHON="python3"
 fi
 
-# Installatie-check: basisfunctionaliteit & textual aanwezig? Zo niet, installeer.
-if ! "$PYTHON" -c "import requests, rich" &>/dev/null; then
+# Installatie-check: engine-dependencies aanwezig (incl. phonenumbers voor
+# telefoon-verrijking)? Zo niet, installeer de volledige requirements.
+if ! "$PYTHON" -c "import requests, rich, phonenumbers" &>/dev/null; then
     echo "⚠️  Dependencies ontbreken (eerste keer starten?)."
     echo ">> Installatie wordt automatisch gestart..."
     if [ -f "$DIR/install_mac.sh" ]; then
@@ -41,7 +42,7 @@ if ! "$PYTHON" -c "import requests, rich" &>/dev/null; then
         if [ -x "$DIR/.venv/bin/python3" ]; then
             PYTHON="$DIR/.venv/bin/python3"
         fi
-        if ! "$PYTHON" -c "import requests, rich" &>/dev/null; then
+        if ! "$PYTHON" -c "import requests, rich, phonenumbers" &>/dev/null; then
             echo ""
             echo "FOUT: dependencies nog steeds niet geinstalleerd. Probeer handmatig:"
             echo "  pip install -r requirements.txt"

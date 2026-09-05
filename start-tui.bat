@@ -10,8 +10,9 @@ if exist "%SCRIPT_DIR%.venv\Scripts\python.exe" (
     set PYTHON=%SCRIPT_DIR%.venv\Scripts\python.exe
 )
 
-REM Installatie-check: basisfunctionaliteit aanwezig? Zo niet, installeer.
-%PYTHON% -c "import requests, rich" >nul 2>&1
+REM Installatie-check: engine-dependencies aanwezig (incl. phonenumbers voor
+REM telefoon-verrijking)? Zo niet, installeer de volledige requirements.
+%PYTHON% -c "import requests, rich, phonenumbers" >nul 2>&1
 if errorlevel 1 (
     echo.
     echo [!] Dependencies ontbreken - eerste keer starten^?

@@ -3024,7 +3024,8 @@ def _normaliseer_telefoon(tel):
     elif cleaned.startswith("00"):
         cleaned = cleaned[2:]
     elif cleaned.startswith("0"):
-        cleaned = cleaned[1:]
+        # NL-nationaal formaat: 0X.. -> 31 X..
+        cleaned = "31" + cleaned[1:]
     return cleaned, cleaned
 
 
