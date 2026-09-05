@@ -984,7 +984,6 @@ class OsintTui(App):
     def _voer_socid(w: dict) -> ZoekResultaat:
         id_input = w["social_url"]
         gevonden = []
-        profielen_gepland = []
         if "://" not in id_input:
             u = id_input.lstrip("@")
             for platform_url, pname in [
@@ -994,24 +993,28 @@ class OsintTui(App):
                 (f"https://www.tiktok.com/@{u}", "TikTok"),
                 (f"https://www.facebook.com/{u}", "Facebook"),
             ]:
-                profielen_gepland.append({"url": platform_url, "platform": pname, "bron": "handmatig"})
+                r = sc.zoek_social_media_ids([{"url": platform_url, "platform": pname, "bron": "handmatig"}])
+                if r:
+                    _print_socid(r[0])
+                    gevonden.append(r[0])
         else:
-            profielen_gepland.append({"url": id_input, "platform": "Onbekend", "bron": "handmatig"})
-        for profiel in profielen_gepland:
-            r = sc.zoek_social_media_ids([profiel])
+            r = sc.zoek_social_media_ids([{"url": id_input, "platform": "Onbekend", "bron": "handmatig"}])
             if r:
                 _print_socid(r[0])
                 gevonden.append(r[0])
         samenvatting = [f"ID's gevonden: {len(gevonden)}"]
-        links = [{"label": f"{p.get('platform', 'Onbekend')} — {p.get('url', '')}", "url": p.get("url", "")}
-                 for p in gevonden if p.get("url")]
+        links: list[dict] = []
         for p in gevonden:
-            regel = f"{p.get('platform', 'Onbekend')}  {p.get('url', '')}"
-            intern = p.get("internal_ids") or {}
-            for id_naam, id_waarde in intern.items():
-                regel += f"  · {id_naam}={id_waarde}"
-            samenvatting.append(regel)
-        if not gevonden and not profielen_gepland:
+            url = p.get("url") or ""
+            if url:
+                links.append({"label": f"{p.get('platform', 'Onbekend')} — {url}", "url": url})
+            gevonden_ids = _socid_gegevens(p)
+            if gevonden_ids:
+                samenvatting.extend(gevonden_ids)
+        if not gevonden:
+            samenvatting.append(
+                "Kon geen ID extraheren. Mogelijk geen profiel gevonden of platform-/CAPTCHA-beperking."
+            )
             sc.console.print("[yellow]Kon geen ID extraheren (platform- of CAPTCHA-beperking).[/]")
         return ZoekResultaat("socid", id_input, None, samenvatting, [], [], links)
 
@@ -1078,16 +1081,73 @@ def _masker(waarde: str) -> str:
     return waarde[:3] + "…" + waarde[-2:] if len(waarde) > 6 else "****"
 
 
+def _socid_details(p: dict) -> dict:
+    """Geeft de werkelijk verrijkte profieldata (onder 'details')."""
+    return p.get("details") or {}
+
+
+def _socid_socid_dict(p: dict) -> dict:
+    """socid-extractor gegevens indien aanwezig."""
+    return _socid_details(p).get("socid") or {}
+
+
+def _socid_gegevens(p: dict) -> list[str]:
+    """Leesbare regels uit de verrijkte profieldata (details / socid / ids_data)."""
+    regels: list[str] = []
+    platform = p.get("platform", "Onbekend")
+    url = p.get("url", "")
+    kop = f"{platform}  {url}"
+    d = _socid_details(p)
+    intern_top = _socid_socid_dict(p).get("internal_ids") or {}
+    # ids_data (Maigret) en socid-internal_ids zijn de echte ID-waardes
+    ids_data = d.get("ids_data") or {}
+    id_regels = []
+    for bron_dict in (ids_data, intern_top):
+        for id_naam, id_waarde in bron_dict.items():
+            if id_waarde not in (None, "", 0, False):
+                id_regels.append(f"  · {id_naam}: {id_waarde}")
+    if p.get("id"):
+        id_regels.insert(0, f"  [bold]id: {p['id']}[/]")
+    if id_regels:
+        regels.append(kop)
+        regels.extend(id_regels)
+        return regels
+    # Geen ID's gevonden maar wel profiel -> toon details zonder ID
+    s = _socid_socid_dict(p)
+    details = [
+        s.get("fullname"), s.get("name"), s.get("display_name"), s.get("is_verified"),
+        s.get("followers_count"), s.get("created_at"),
+        d.get("fullname"), d.get("name"), d.get("display_name"),
+        d.get("followers_count"), d.get("created_at"), d.get("is_verified"),
+    ]
+    if any(v not in (None, "", 0, False) for v in details):
+        regels.append(kop)
+    return regels
+
+
 def _print_socid(p: dict) -> None:
+    """Print de ID-extractie naar de live-log, vergelijkbaar met de CLI (_toon_een_id)."""
     sc.console.print(f"[bold cyan]{p.get('platform', 'Onbekend')}[/]  {p.get('url', '')}")
-    for veld in ("fullname", "name", "display_name", "created_at", "is_private", "followers_count"):
-        waarde = p.get(veld)
+    d = _socid_details(p)
+    sc.console.print(f"  ID: [bold cyan]{p.get('id', '-')}[/]")
+    sc.console.print(f"  Bron: {p.get('bron', '-')}")
+    s = _socid_socid_dict(p)
+    for veld in ("fullname", "name", "display_name", "bio", "tagline", "created_at",
+                 "gender", "country", "city", "location", "is_verified", "is_private",
+                 "is_business", "followers_count", "following_count", "media_count",
+                 "website", "website_url"):
+        waarde = s.get(veld)
         if waarde not in (None, "", 0, False, "None"):
             sc.console.print(f"   {veld}: {str(waarde)[:120]}")
-    intern = p.get("internal_ids") or {}
+    ids_data = d.get("ids_data") or {}
+    if ids_data:
+        for id_naam, id_waarde in ids_data.items():
+            if id_waarde not in (None, "", 0, False):
+                sc.console.print(f"   [cyan]{id_naam}: {str(id_waarde)[:120]}[/]")
+    intern = _socid_socid_dict(p).get("internal_ids") or {}
     for id_naam, id_waarde in intern.items():
         sc.console.print(f"   [cyan]{id_naam}: {id_waarde}[/]")
-    ext = p.get("external_links") or []
+    ext = _socid_socid_dict(p).get("external_links") or []
     if ext:
         sc.console.print(f"   extern: {', '.join(str(l)[:60] for l in ext[:5])}")
 
