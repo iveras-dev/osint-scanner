@@ -270,7 +270,7 @@ class OsintTui(App):
                         yield Button("Wissen", id="sleutel_wissen")
                     yield Label("", id="sleutel_info")
                 with Vertical(id="paneel_rapporten", classes="paneel"):
-                    yield Label("Bestaande HTML-rapporten", id="rapport_kop")
+                    yield Label("Bestaande rapporten (HTML + PDF)", id="rapport_kop")
                     yield ListView(id="rapportlijst")
                     with Horizontal():
                         yield Button("Openen", id="rapport_open", variant="primary")
@@ -313,7 +313,7 @@ class OsintTui(App):
         self._laatste_bestand: str | None = None
         self._runid = 0
         self._update_info: dict = {}
-        self.auto_open_en_pdf = False
+        self.auto_open_en_pdf = True
 
     def on_mount(self) -> None:
         _activeer_geleide_console()
@@ -466,7 +466,8 @@ class OsintTui(App):
 
     def _rapporten_lijst(self) -> list[tuple[str, int]]:
         rapporten = sorted(
-            (p for p in os.listdir(".") if p.startswith("osint_rapport_") and p.endswith(".html")),
+            (p for p in os.listdir(".")
+             if p.startswith("osint_rapport_") and p.endswith((".html", ".pdf"))),
             key=os.path.getmtime,
             reverse=True,
         )
@@ -480,7 +481,8 @@ class OsintTui(App):
             lijst.append(ListItem(Label("[dim]Geen rapporten gevonden.[/]")))
             return
         for pad, kb in self._rapporten_data:
-            lijst.append(ListItem(Label(f"{pad}  [dim]({kb} KB)[/]")))
+            soort = "[cyan]PDF[/]" if pad.endswith(".pdf") else "[green]HTML[/]"
+            lijst.append(ListItem(Label(f"{soort}  {pad}  [dim]({kb} KB)[/]")))
 
     def _rapport_actie(self, actie: str) -> None:
         geselecteerd = self.query_one("#rapportlijst", ListView).index
@@ -490,6 +492,9 @@ class OsintTui(App):
         if actie == "open":
             webbrowser.open("file://" + os.path.abspath(pad))
         elif actie == "pdf":
+            if pad.endswith(".pdf"):
+                self.query_one("#rapport_info", Label).update("[yellow]Dit is al een PDF.[/]")
+                return
             zelf = self.query_one("#rapport_info", Label)
             self.run_worker(lambda: self._werk_pdf(pad, zelf), thread=True, exit_on_error=False)
         else:
