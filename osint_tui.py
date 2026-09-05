@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual import events
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import (
     Button,
@@ -36,6 +37,8 @@ from textual.widgets import (
     ListView,
     LoadingIndicator,
     RichLog,
+    TabbedContent,
+    TabPane,
 )
 
 import osint_scanner as sc
@@ -89,6 +92,7 @@ def _schoone_regels(ruw: str) -> list[str]:
     """Zet ruwe buffer-output om naar nette regel-tekst (incl. spinner-opruiming)."""
     ruw = ANSI_RE.sub("", ruw)
     regels: list[str] = []
+    vorige = ""
     for blok in ruw.split("\n"):
         # rich-status gebruikt \r om dezelfde regel te herschrijven; houd de
         # laatste schrijving en gooi spinners/samengedrukte regels weg.
@@ -100,7 +104,13 @@ def _schoone_regels(ruw: str) -> list[str]:
             continue
         if re.fullmatch(r"[;·•●○◦*xX.]+", laatste):
             continue
-        regels.append(laatste)
+        # Samengedrukte repeats (bv. "● ... ● ...") en spellers wegsnoeien
+        verkleind = re.sub(r"(?i)\b(running|done|compiler|finished|loading|searching)[ .…]*", "", laatste)
+        tekst = (verkleind or laatste).strip()
+        if not tekst or tekst == vorige:
+            continue
+        vorige = tekst
+        regels.append(tekst)
     return regels
 
 
@@ -179,6 +189,27 @@ class NavigatieItem(ListItem):
             self.app.selecteer_navigatie(self.waarde)
 
 
+class _OpenListItem(ListItem):
+    """Regel (hit/link) die bij klik de URL opent — onafhankelijk van de
+    container-structuur (TabPane verbreekt anders de ListView-klik-bubbling)."""
+
+    def __init__(self, tekst: str, url: str) -> None:
+        super().__init__(Label(tekst))
+        self.data_url = url
+
+    def _on_click(self, _event: events.Click) -> None:
+        if self.data_url:
+            webbrowser.open(self.data_url)
+
+    @staticmethod
+    def bouw_lijst(items: list[dict], make_label) -> list["_OpenListItem"]:
+        return [
+            _OpenListItem(make_label(it), it.get("url", ""))
+            for it in items
+            if it.get("url")
+        ]
+
+
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
@@ -236,17 +267,20 @@ class OsintTui(App):
     .btnrij { margin: 2 2; }
     .btnrij Button { margin-right: 1; }
     #btnrij_zoek { display: none; }
-    #resultaat { margin: 1 2; height: auto; display: none; }
+    #resultaat { margin: 1 2; height: 1fr; display: none; }
     #result_status { color: #f1fa8c; margin-bottom: 1; }
     #result_status_rij { height: 3; }
     #laad_indicatie { display: none; width: 24; margin: 0 1; }
-    #result_summary { color: #ddedf9; }
-    #result_bronnen_kop, #result_hits_kop, #result_links_kop, #result_log_kop {
+    #result_tabs { height: 1fr; }
+    #result_summary { color: #ddedf9; margin: 0 0 0 1; }
+    #result_summary_kop { color: #ffb86c; }
+    #result_bronnen_kop, #result_hits_kop, #result_links_kop {
         color: #ffb86c; margin-top: 1; display: none;
     }
     #result_bronnen { display: none; }
-    #result_hits, #result_links { height: auto; max-height: 12; margin: 0 0 0 1; display: none; }
-    #result_log { height: 12; border: round $accent; display: none; }
+    #result_hits, #result_links { height: auto; max-height: 8; margin: 0 0 0 1; display: none; }
+    #result_log_kop { color: #ffb86c; margin: 0; display: none; }
+    #result_log { height: 1fr; border: round $accent; }
     .paneel { margin: 1 2; height: auto; display: none; }
     #paneel_start { display: block; }
     .paneel Label { color: #ddedf9; }
@@ -308,15 +342,19 @@ class OsintTui(App):
                     with Horizontal(id="result_status_rij"):
                         yield Label("", id="result_status")
                         yield LoadingIndicator(id="laad_indicatie")
-                    yield Label("", id="result_summary")
-                    yield Label("Bronnen", id="result_bronnen_kop")
-                    yield Label("", id="result_bronnen")
-                    yield Label("Hits — Enter of klik opent in de browser", id="result_hits_kop")
-                    yield ListView(id="result_hits")
-                    yield Label("Links", id="result_links_kop")
-                    yield ListView(id="result_links")
-                    yield Label("Live-log", id="result_log_kop")
-                    yield RichLog(id="result_log", wrap=True, markup=False)
+                    with TabbedContent(id="result_tabs"):
+                        with TabPane("Resultaat", id="tab_resultaat"):
+                            yield Label("Samenvatting", id="result_summary_kop")
+                            yield Label("", id="result_summary")
+                            yield Label("Bronnen", id="result_bronnen_kop")
+                            yield Label("", id="result_bronnen")
+                            yield Label("Hits — klik of Enter opent in de browser", id="result_hits_kop")
+                            yield ListView(id="result_hits")
+                            yield Label("Links", id="result_links_kop")
+                            yield ListView(id="result_links")
+                        with TabPane("Live-log", id="tab_log"):
+                            yield Label("", id="result_log_kop")
+                            yield RichLog(id="result_log", wrap=True, markup=False)
                     with Horizontal(classes="btnrij"):
                         yield Button("Openen", id="openen", variant="primary", disabled=True)
                         yield Button("PDF", id="pdf", disabled=True)
@@ -407,6 +445,17 @@ class OsintTui(App):
         except StopIteration:
             return
         self.query_one("#navigatie", ListView).index = idx
+
+    def _toon_result_tab(self, paneel_id: str) -> None:
+        """Wissel tussen de 'Resultaat'- en 'Live-log'-tab van het resultaatpaneel."""
+        try:
+            tabs = self.query_one("#result_tabs", TabbedContent)
+        except Exception:
+            return
+        try:
+            tabs.active = paneel_id
+        except Exception:
+            pass
 
     def _verberg_inhoud(self) -> None:
         for zt, _t, _n in ZOEK_OPTIES:
@@ -665,6 +714,7 @@ class OsintTui(App):
         self.query_one("#result_log_kop", Label).update(
             "Live-log — het systeem is bezig, dit kan een paar minuten duren"
         )
+        self._toon_result_tab("tab_log")
         self._onderzoek_bezig = True
         self._start_tijd = time.monotonic()
         self._laatste_seconde = -1
@@ -705,6 +755,7 @@ class OsintTui(App):
         self._onderzoek_bezig = False
         self.query_one("#laad_indicatie", LoadingIndicator).display = False
         self.query_one("#result_log_kop", Label).update("Live-log")
+        self._toon_result_tab("tab_resultaat")
         self._laatste_bestand = data.bestandsnaam
         status = self.query_one("#result_status", Label)
         if data.bestandsnaam:
@@ -722,18 +773,15 @@ class OsintTui(App):
         if data.hits:
             hv = self.query_one("#result_hits", ListView)
             hv.clear()
-            for h in data.hits[:60]:
-                item = ListItem(Label(self._hit_tekst(h)))
-                item.data_url = h.get("url", "")
-                hv.append(item)
+            for it in data.hits[:60]:
+                hv.append(_OpenListItem(self._hit_tekst(it), it.get("url", "")))
             self.query_one("#result_hits_kop").display = True
         if data.links:
             lv = self.query_one("#result_links", ListView)
             lv.clear()
             for link in data.links[:30]:
-                item = ListItem(Label(f"[dim]↗[/] {link.get('label', link.get('url', ''))}"))
-                item.data_url = link.get("url", "")
-                lv.append(item)
+                label = f"[dim]↗[/] {link.get('label', link.get('url', ''))}"
+                lv.append(_OpenListItem(label, link.get("url", "")))
             self.query_one("#result_links_kop").display = True
         self.query_one("#result_log_kop").display = True
         self.query_one("#openen", Button).disabled = not data.bestandsnaam
@@ -745,16 +793,27 @@ class OsintTui(App):
         self._onderzoek_bezig = False
         self.query_one("#laad_indicatie", LoadingIndicator).display = False
         self.query_one("#result_log_kop", Label).update("Live-log")
+        self._toon_result_tab("tab_resultaat")
         self.query_one("#result_status", Label).update(f"[red]{melding}[/]")
 
     @staticmethod
     def _hit_tekst(h: dict) -> str:
         score = h.get("score")
-        titel = (h.get("titel") or "").strip() or "?" 
-        url = h.get("url") or ""
+        titel = (h.get("titel") or "").strip() or "?"
+        url = (h.get("url") or "").strip()
+        label = ""
         if score:
-            return f"[cyan]{score}[/]  {titel}  [dim]{url[:70]}[/]"
-        return f"{titel}  [dim]{url[:70]}[/]"
+            if score >= 7:
+                label += f"[bold green]{score}[/]"
+            elif score >= 4:
+                label += f"[bold yellow]{score}[/]"
+            else:
+                label += f"[bold dim]{score}[/]"
+            label += "  "
+        label += titel
+        if url:
+            label += f"  [dim]{url[:64]}[/]"
+        return label
 
     def _wk_pdf(self) -> None:
         bestand = self._laatste_bestand
@@ -1161,9 +1220,17 @@ def _data_uit_rapport(zoektype, doelwit, best, rapport, extra) -> ZoekResultaat:
         for h in d.get("hits", [])
     ]
     samenvatting: list[str] = []
+    secties: list[str] = []
+
+    def sectie(naam: str, regels: list[str]) -> None:
+        if regels:
+            secties.append(f"[bold cyan]▍{naam}[/]")
+            secties.extend(f"   {r}" for r in regels)
+
     tv = extra.get("telefoon_verrijking") or {}
+    tv_txt: list[str] = []
     if tv.get("melding"):
-        samenvatting.append(tv["melding"])
+        tv_txt.append(tv["melding"])
     else:
         tv_onderdelen = []
         if tv.get("geldig"):
@@ -1183,49 +1250,71 @@ def _data_uit_rapport(zoektype, doelwit, best, rapport, extra) -> ZoekResultaat:
         if tv.get("telegram") is not None:
             tv_onderdelen.append("Telegram actief" if tv["telegram"] else "Telegram niet gevonden")
         if tv_onderdelen:
-            samenvatting.append("Telefoon-verrijking: " + " | ".join(tv_onderdelen))
+            tv_txt.append("  ·  ".join(tv_onderdelen))
+    sectie("Telefoon", tv_txt)
+
     wp = extra.get("web_presence") or {}
+    wp_txt: list[str] = []
     if "score" in wp:
-        samenvatting.append(
-            f"Web-presence-score: {wp['score']}  ({len(wp.get('socials', []))} platforms / "
-            f"{wp.get('totaal_resultaten', 0)} resultaten)"
+        wp_txt.append(
+            f"Score: [bold]{wp['score']}[/]  ·  {len(wp.get('socials', []))} platforms / "
+            f"{wp.get('totaal_resultaten', 0)} resultaten"
         )
+    for s in wp.get("socials") or []:
+        if s.get("url"):
+            wp_txt.append(f"· {s.get('platform', '?')}  [dim]{s['url']}[/]")
+    sectie("Web-presence", wp_txt)
+
     hibp = extra.get("hibp") or {}
     if hibp.get("status"):
         labels = {"schoon": "geen lekken", "getroffen": "IN LEKKEN!", "overgeslagen": "overgeslagen", "fout": "fout"}
-        samenvatting.append(f"HaveIBeenPwned: {labels.get(hibp['status'], hibp['status'])}")
+        sectie("HaveIBeenPwned", [labels.get(hibp['status'], hibp['status'])])
     gh = extra.get("github") or {}
     if "profielen" in gh:
-        samenvatting.append(f"GitHub: {len(gh['profielen'])} profielen")
+        gh_txt = [f"{p.get('login', '?')}  [dim]({p.get('name') or ''})[/]".strip() for p in gh["profielen"][:6]]
+        if gh_txt:
+            sectie("GitHub", gh_txt)
     hh = extra.get("holehe") or {}
+    hh_txt: list[str] = []
     if hh.get("status") == "ok":
         onbekend = sum(1 for s_ in hh.get("sites", []) if s_["rate_limit"])
         label = f"{hh.get('gevonden', 0)} accounts"
         if onbekend:
             label += f", {onbekend} onbekend"
-        samenvatting.append(f"Sites-check (holehe): {label}")
+        hh_txt.append(label)
+        site_namen = [s_["site"] for s_ in hh["sites"] if s_.get("exists")]
+        if site_namen:
+            hh_txt.append("Gevonden op: " + ", ".join(site_namen))
     elif hh.get("melding"):
-        samenvatting.append(f"Sites-check (holehe): {hh['melding']}")
+        hh_txt.append(hh["melding"])
+    sectie("Sites-check (holehe)", hh_txt)
     if "social" in extra:
-        samenvatting.append(f"Social-profielen: {len(extra['social'])}")
+        s_txt = [f"· {s.get('platform', '?')}  [dim]{s.get('url', '')}[/]" for s in extra["social"][:8] if s.get("url")]
+        sectie("Social-profielen", [f"{len(extra['social'])} gevonden"] + s_txt)
     sid = extra.get("social_ids")
     if sid is not None:
         gevonden = [x for x in sid if x.get("id")]
-        samenvatting.append(f"Social-ID's: {len(gevonden)}/{len(sid)} geextraheerd")
+        sids_txt = [f"· {s.get('platform', '?')}  [cyan]{s.get('id', '')}[/]" for s in gevonden[:8]]
+        sectie("Social-ID's", [f"{len(gevonden)}/{len(sid)} geextraheerd"] + sids_txt)
     mr = extra.get("maigret") or {}
     if mr.get("sites") is not None:
-        samenvatting.append(f"Maigret: {len(mr['sites'])} profielen ({mr.get('totaal_gezocht', 0)} sites onderzocht)")
+        mr_txt = [f"· {s.get('platform', '?')}  [dim]{s.get('url', '')}[/]" for s in mr["sites"][:8] if s.get("url")]
+        sectie("Maigret site-scan", [f"{len(mr['sites'])} profielen ({mr.get('totaal_gezocht', 0)} sites)"] + mr_txt)
     interp = extra.get("interpol") or {}
     if interp.get("red") or interp.get("yellow"):
-        samenvatting.append(f"Interpol: {len(interp['red'])} red / {len(interp['yellow'])} yellow")
+        sectie("Interpol", [f"{len(interp['red'])} red / {len(interp['yellow'])} yellow"])
     fbi = extra.get("fbi") or {}
-    if fbi.get("gezocht") or fbi.get("vermist"):
-        samenvatting.append(f"FBI: {len(fbi['gezocht'])} gezocht / {len(fbi['vermist'])} vermist")
+    fbi_txt = []
+    if fbi.get("gezocht"):
+        fbi_txt += [f"· {n.get('naam', '?')}" for n in fbi["gezocht"][:6]]
+    if fbi.get("vermist"):
+        fbi_txt += [f"· [dim]{n.get('naam', '?')} (vermist)[/]" for n in fbi["vermist"][:6]]
+    if fbi_txt:
+        sectie("FBI", fbi_txt)
     ol = extra.get("opsporingslijst") or []
     if ol:
-        samenvatting.append(f"Opsporingslijst: {len(ol)} hits")
-    if not samenvatting:
-        samenvatting.append("Geen extra's gevonden; alleen de web-zoekresultaten.")
+        sectie("Opsporingslijst", [f"{len(ol)} hits"])
+    samenvatting = secties or ["Geen extra's gevonden; alleen de web-zoekresultaten."]
     links = [
         {"label": f"{s.get('platform', '')} — {s.get('url', '')}", "url": s.get("url", "")}
         for s in (wp.get("socials") or [])
